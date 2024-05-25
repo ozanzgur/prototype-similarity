@@ -1,0 +1,4 @@
+- A script to generate layer-metric data
+- A script to generate n_prototypes-metric data
+- A script to run all other studies
+- A script to download all datasets
