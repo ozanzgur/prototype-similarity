@@ -27,16 +27,26 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 N_PROTOTYPES = 250
 
-MODEL_CIFAR10 = 0
-MODEL_CIFAR100 = 1
+DATASET_CIFAR10 = "cifar10"
+DATASET_CIFAR100 = "cifar100"
+DATASET_TINYIMAGENET = "tin"
+DATASET_IMAGENET = "imagenet"
+DATASET_IMAGENET200 = "imagenet200"
 
-MODEL_TYPE = MODEL_CIFAR100
+ID_DATASET = DATASET_CIFAR10
+OOD_TRAIN_DATASET = DATASET_TINYIMAGENET
 
-# mean and standard deviation of channels of CIFAR-10 images
-mean = [x / 255 for x in [125.3, 123.0, 113.9]]
-std = [x / 255 for x in [63.0, 62.1, 66.7]]
-
-test_transform = tt.Compose([tt.ToTensor(), tt.Normalize(mean, std)])
+normalization_dict = {
+    'cifar10': [[0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616]],
+    'cifar100': [[0.5071, 0.4867, 0.4408], [0.2675, 0.2565, 0.2761]],
+    'imagenet': [[0.485, 0.456, 0.406], [0.229, 0.224, 0.225]],
+    'imagenet200': [[0.485, 0.456, 0.406], [0.229, 0.224, 0.225]],
+    'covid': [[0.4907, 0.4907, 0.4907], [0.2697, 0.2697, 0.2697]],
+    'aircraft': [[0.5, 0.5, 0.5], [0.5, 0.5, 0.5]],
+    'cub': [[0.5, 0.5, 0.5], [0.5, 0.5, 0.5]],
+    'cars': [[0.5, 0.5, 0.5], [0.5, 0.5, 0.5]],
+}
+mean, std = normalization_dict[ID_DATASET]
 
 class ReconstructModel(pl.LightningModule):
     def __init__(self, input_dim=128):
@@ -107,36 +117,85 @@ def reconstruct_score(model, x):
     return similarities, similarities_cos
 
 # %%
-from openood.networks import ResNet18_32x32
-
-# Load an ImageNet-pretrained model from torchvision
-#model_path = "/home/ozan/projects/git/prototype-similarity/model/cifar10_res18_v1.5/cifar10_resnet18_32x32_base_e100_lr0.1_default/s1/best.ckpt"
-model_path = "/home/ozan/projects/git/prototype-similarity/model/cifar100_res18_v1.5/cifar100_resnet18_32x32_base_e100_lr0.1_default/s0/best.ckpt"
 
 dataset_path = "/home/ozan/projects/git/prototype-similarity/data"
+if ID_DATASET == DATASET_CIFAR10:
+    from openood.networks import ResNet18_32x32
 
-net = ResNet18_32x32(num_classes=100)
-net.load_state_dict(torch.load(model_path))
-net.eval(); net.cuda();
-model = ReconstructModel(512).cuda()
+    model_path = "/home/ozan/projects/git/prototype-similarity/model/cifar10_res18_v1.5/cifar10_resnet18_32x32_base_e100_lr0.1_default/s1/best.ckpt"
 
-net.layer4[0].conv1.register_forward_hook(get_activation('b4_relu1'))
+    net = ResNet18_32x32(num_classes=10)
+    net.load_state_dict(torch.load(model_path))
+    net.eval(); net.cuda();
+    model = ReconstructModel(512).cuda()
 
-if MODEL_TYPE == MODEL_CIFAR10:
+    net.layer4[0].conv1.register_forward_hook(get_activation('b4_relu1'))
+
+    test_transform = tt.Compose([tt.ToTensor(), tt.Normalize(mean, std)])
     train_dataset = torchvision.datasets.CIFAR10(dataset_path, train=True, transform=test_transform, download=True)
     test_dataset = torchvision.datasets.CIFAR10(dataset_path, train=False, transform=test_transform, download=True)
-else:
+    batch_size = 32
+
+elif ID_DATASET == DATASET_CIFAR100:
+    from openood.networks import ResNet18_32x32
+
+    model_path = "/home/ozan/projects/git/prototype-similarity/model/cifar100_res18_v1.5/cifar100_resnet18_32x32_base_e100_lr0.1_default/s0/best.ckpt"
+    
+    net = ResNet18_32x32(num_classes=100)
+    net.load_state_dict(torch.load(model_path))
+    net.eval(); net.cuda();
+    model = ReconstructModel(512).cuda()
+    net.layer4[0].conv1.register_forward_hook(get_activation('b4_relu1'))
+
+    test_transform = tt.Compose([tt.ToTensor(), tt.Normalize(mean, std)])
     train_dataset = torchvision.datasets.CIFAR100(dataset_path, train=True, transform=test_transform, download=True)
     test_dataset = torchvision.datasets.CIFAR100(dataset_path, train=False, transform=test_transform, download=True)
+    batch_size = 32
+
+elif ID_DATASET == DATASET_IMAGENET200:
+    model_path = "/home/ozan/projects/git/prototype-similarity/model/imagenet200_res18_v1.5/imagenet200_resnet18_224x224_base_e90_lr0.1_default/s0/best.ckpt"
+    
+    net = ResNet18_224x224(num_classes=200)
+    net.load_state_dict(torch.load(model_path))
+    net.eval(); net.cuda();
+    model = ReconstructModel(512).cuda()
+    net.layer4[0].conv1.register_forward_hook(get_activation('b4_relu1'))
+
+    test_transform = tt.Compose([tt.ToTensor(), tt.Normalize(mean, std)])
+    train_dataset = torchvision.datasets.CIFAR100(dataset_path, train=True, transform=test_transform, download=True)
+    test_dataset = torchvision.datasets.CIFAR100(dataset_path, train=False, transform=test_transform, download=True)
+    batch_size = 32
+
+
+elif ID_DATASET == DATASET_IMAGENET:
+    from datasets import load_dataset
+    from openood.networks import ResNet50
+    from torchvision.models import ResNet50_Weights
+    from torch.hub import load_state_dict_from_url
+
+    net = ResNet50()
+    weights = ResNet50_Weights.IMAGENET1K_V1
+    net.load_state_dict(load_state_dict_from_url(weights.url))
+    test_transform = weights.transforms()
+    net.eval(); net.cuda()
+    net.layer4[0].conv1.register_forward_hook(get_activation('b4_relu1'))
+
+    #train_dataset = torchvision.datasets.ImageNet(dataset_path, train=True, transform=test_transform, download=True)
+    #test_dataset = torchvision.datasets.ImageNet(dataset_path, train=False, transform=test_transform, download=True)
+    train_dataset = load_dataset("imagenet-1k", split='train')
+    testdataset = load_dataset("imagenet-1k", split='test')
+    train_dataset.set_transform(test_transform)
+    testdataset.set_transform(test_transform)
+    batch_size = 4
 
 train_loader = torch.utils.data.DataLoader(
     train_dataset,
-    batch_size=32,
+    batch_size=batch_size,
     shuffle=True
 )
 test_loader = torch.utils.data.DataLoader(
     test_dataset,
-    batch_size=32,
+    batch_size=batch_size,
     shuffle=True
 )
 
@@ -161,75 +220,123 @@ def score_dataset(net, loader):
     scores_cos = np.concatenate(scores_cos, axis=0).astype(np.float16)
     return scores, scores_cos
 
-test_id_scores, test_id_scores_cos = score_dataset(net, test_loader)
+#test_id_scores, test_id_scores_cos = score_dataset(net, test_loader)
 train_id_scores, train_id_scores_cos = score_dataset(net, train_loader)
 
 # %%
 import numpy as np
-from sklearn.datasets import make_classification
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import roc_auc_score
 
+if OOD_TRAIN_DATASET == DATASET_TINYIMAGENET:
+    def get_ood_training_dataset(resize=None):
+        from datasets import load_dataset
 
-def get_ood_training_dataset():
-    from datasets import load_dataset
+        class ToRGB:
+            def __call__(self, img):
+                return img.convert('RGB')
 
-    class ToRGB:
-        def __call__(self, img):
-            return img.convert('RGB')
+        transforms = [
+            ToRGB(),
+            #tt.Resize(32),
+            tt.CenterCrop(32),
+            tt.ToTensor(),
+            tt.Normalize(mean, std)
+        ]
+        if resize is not None:
+            transforms.insert(1, tt.Resize((resize)))
+        transform = tt.Compose(transforms)
+        def transform_fn(examples):
+            examples["image"] = [transform(image) for image in examples["image"]]
+            return examples
 
-    transform = tt.Compose([
-        ToRGB(),
-        #tt.Resize((32, 32)),
-        tt.CenterCrop(32),
-        tt.ToTensor(),
-        tt.Normalize(mean, std)
-    ])
-    def transform_fn(examples):
-        examples["image"] = [transform(image) for image in examples["image"]]
-        return examples
+        def collate_fn(examples):
+            images = []
+            labels = []
+            for example in examples:
+                images.append((example["image"]))
+                labels.append(example["label"])
+                
+            images = torch.stack(images)
+            labels = torch.tensor(labels)
+            return images, labels
 
-    def collate_fn(examples):
-        images = []
-        labels = []
-        for example in examples:
-            images.append((example["image"]))
-            labels.append(example["label"])
-            
-        images = torch.stack(images)
-        labels = torch.tensor(labels)
-        return images, labels
-
-    test_dataset = load_dataset('Maysee/tiny-imagenet', split='train')
-    #test_idx = np.random.permutation(len(test_dataset))
-    #test_idx = [int(i) for i in test_idx]
-    test_dataset.set_transform(transform_fn)
-    #test_dataset = Subset(test_dataset, indices=test_idx)
-    test_loader = torch.utils.data.DataLoader(
-        test_dataset,
-        batch_size=32, 
-        shuffle=False,
-        collate_fn=collate_fn
-    )
-    return test_loader
+        test_dataset = load_dataset('Maysee/tiny-imagenet', split='train')
+        #test_idx = np.random.permutation(len(test_dataset))
+        #test_idx = [int(i) for i in test_idx]
+        test_dataset.set_transform(transform_fn)
+        #test_dataset = Subset(test_dataset, indices=test_idx)
+        test_loader = torch.utils.data.DataLoader(
+            test_dataset,
+            batch_size=32, 
+            shuffle=False,
+            collate_fn=collate_fn
+        )
+        return test_loader
+    
+elif OOD_TRAIN_DATASET == "":
+    def get_ood_training_dataset():
+        transform = tt.Compose([
+            tt.Resize((384, 512)),
+            test_transform
+        ])
+        train_dataset = torchvision.datasets.CIFAR100(dataset_path, train=True, transform=transform, download=True)
+        train_loader = torch.utils.data.DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=False
+        )
+        return train_loader
+elif OOD_TRAIN_DATASET == DATASET_CIFAR100:
+    def get_ood_training_dataset():
+        test_transform = tt.Compose([tt.ToTensor(), tt.Normalize(mean, std)])
+        test_dataset = torchvision.datasets.CIFAR100(dataset_path, train=False, transform=test_transform, download=True)
+        test_loader = torch.utils.data.DataLoader(
+            test_dataset,
+            batch_size=batch_size,
+            shuffle=True
+        )
+        return test_loader
+        
 
 # Get the ood training data
 print("Getting the ood training dataset for id classification")
 ood_training_loader = get_ood_training_dataset()
 ood_training_scores, ood_training_scores_cos  = score_dataset(model, ood_training_loader)
+
+if OOD_TRAIN_DATASET == DATASET_TINYIMAGENET:
+    for resize in [76, 52, 40, 28]:
+        print(f"Resize: {resize}")
+        ood_training_loader = get_ood_training_dataset(resize=resize)
+        ood_training_scores2, ood_training_scores_cos2  = score_dataset(model, ood_training_loader)
+        ood_training_scores = np.concatenate([ood_training_scores, ood_training_scores2], axis=0)
+        ood_training_scores_cos = np.concatenate([ood_training_scores_cos, ood_training_scores_cos2], axis=0)
+
 ood_mean_scores = ood_training_scores.mean(axis=1)
 ood_mean_scores_cos = ood_training_scores_cos.mean(axis=1)
-X_ood = np.concatenate([ood_mean_scores, ood_mean_scores_cos], axis=1)
+X_ood = np.concatenate([
+    ood_mean_scores, 
+    ood_mean_scores_cos,
+    #np.max(ood_mean_scores, axis=1, keepdims=True), 
+    #np.max(ood_mean_scores_cos, axis=1, keepdims=True),
+    #np.mean(ood_mean_scores, axis=1, keepdims=True), 
+    #np.mean(ood_mean_scores_cos, axis=1, keepdims=True)
+], axis=1)
 y_ood = np.zeros(len(X_ood), dtype=np.int32)
 
 # Get the id training data
 id_mean_scores = train_id_scores.mean(axis=1)
 id_mean_scores_cos = train_id_scores_cos.mean(axis=1)
-X_id = np.concatenate([id_mean_scores, id_mean_scores_cos], axis=1)
+X_id = np.concatenate([
+    id_mean_scores, 
+    id_mean_scores_cos, 
+    #np.max(id_mean_scores, axis=1, keepdims=True), 
+    #np.max(id_mean_scores_cos, axis=1, keepdims=True),
+    #np.mean(id_mean_scores, axis=1, keepdims=True), 
+    #np.mean(id_mean_scores_cos, axis=1, keepdims=True)
+], axis=1)
 y_id = np.ones(len(X_id), dtype=np.int32)
 
 X = np.concatenate([X_ood, X_id], axis=0)
@@ -291,46 +398,31 @@ class PrototypePostprocessor(BasePostprocessor):
     def postprocess(self, net, data):
         s, s_cos = reconstruct_score(model, data.cuda())
         s = s[:, 0].cpu().numpy(); s_cos = s_cos[:, 0].cpu().numpy()
-        features = np.concatenate([s, s_cos], axis=1)
+        features = np.array(np.concatenate([
+            s, 
+            s_cos,
+            #np.max(s, axis=1, keepdims=True), 
+            #np.max(s_cos, axis=1, keepdims=True),
+            #np.mean(s, axis=1, keepdims=True), 
+            #np.mean(s_cos, axis=1, keepdims=True)
+        ], axis=1))
         features = scaler.transform(features)
         pred = metamodel.predict(features)
         conf = metamodel.predict_proba(features)[:, 1]
         return torch.tensor(pred), torch.tensor(conf)
-    
-    """def inference(self,
-                  net,
-                  data_loader,
-                  progress: bool = True):
-        pred_list, conf_list, label_list = [], [], []
-        for batch in tqdm(data_loader,
-                          disable=not progress or not comm.is_main_process()):
-            data = batch['data'].cuda()
-            label = batch['label'].cuda()
-            pred, conf = self.postprocess(net, data)
-
-            pred_list.append(pred)
-            conf_list.append(conf)
-            label_list.append(label)
-
-        # convert values into numpy array
-        pred_list = torch.cat(pred_list).numpy().astype(int)
-        conf_list = torch.cat(conf_list).numpy()
-        label_list = torch.cat(label_list).numpy().astype(int)
-
-        return pred_list, conf_list, label_list"""
-    
 
 # %%
 from openood.evaluation_api import Evaluator
 
 transform = tt.Compose([
+    tt.Resize((32, 32)),
     tt.CenterCrop(32),
     tt.ToTensor(),
     tt.Normalize(mean, std)
 ])
 
 # Initialize an evaluator and evaluate
-evaluator = Evaluator(net, id_name='cifar10',
-    preprocessor=transform, postprocessor=PrototypePostprocessor(None))
+evaluator = Evaluator(net, id_name=ID_DATASET,
+    preprocessor=transform, postprocessor=PrototypePostprocessor(None), batch_size=50)
 metrics = evaluator.eval_ood()
 # %%
