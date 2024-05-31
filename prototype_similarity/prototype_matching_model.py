@@ -5,7 +5,7 @@ import torch.nn.functional as F
 class PrototypeMatchingModel(nn.Module):
     def __init__(self, input_dim, num_prototypes):
         super(PrototypeMatchingModel, self).__init__()
-        self.prototype_bank = nn.Parameter(torch.randn(num_prototypes, input_dim).abs(), requires_grad=True) # *0.01
+        self.prototype_bank = nn.Parameter(torch.randn(num_prototypes, input_dim), requires_grad=True) # *0.01 # .abs()
         self.input_dim = input_dim
         self.prototype_usage_counts = torch.zeros(num_prototypes, dtype=torch.int32).cuda()
     
@@ -14,7 +14,7 @@ class PrototypeMatchingModel(nn.Module):
         x = x.view(batch_size, channels, -1)  # Reshape to 2D for easier computation
 
         # Normalize input and prototypes
-        x = F.normalize(x, p=2, dim=1)
+        x = F.normalize(x, p=2, dim=1) # TODO: try without norm
         prototypes_normalized = F.normalize(self.prototype_bank, p=2, dim=1)
         #prototypes_normalized = self.prototype_bank
 
