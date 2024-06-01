@@ -1,4 +1,6 @@
 # %%
+
+# More OOD data helped a lot in CIFAR100, add the graph to paper
 # Initialize
 # 0.9641
 import torch
@@ -26,7 +28,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 # np.random.seed(42)
 # torch.manual_seed(42)
 
-N_PROTOTYPES = 250
+N_PROTOTYPES = 10
 
 DATASET_CIFAR10 = "cifar10"
 DATASET_CIFAR100 = "cifar100"
@@ -52,38 +54,45 @@ mean, std = normalization_dict[ID_DATASET]
 class ReconstructModel(pl.LightningModule):
     def __init__(self, input_dim=128):
         super(ReconstructModel, self).__init__()
-        self.automatic_optimization = False
+        #self.automatic_optimization = False
         self.loss = nn.MSELoss()
 
-        self.prototype_matcher1 = PrototypeMatchingModel(input_dim=512, num_prototypes=N_PROTOTYPES)
-        #self.prototype_matcher2 = PrototypeMatchingModel(input_dim=64, num_prototypes=N_PROTOTYPES)
-        self.prototype_matcher2 = PrototypeMatchingModel(input_dim=10, num_prototypes=50)
+        #self.prototype_matcher1 = PrototypeMatchingModel(input_dim=128, num_prototypes=100)
+        self.prototype_matcher1_1 = PrototypeMatchingModel(input_dim=512, num_prototypes=N_PROTOTYPES)
+        self.prototype_matcher1_2 = PrototypeMatchingModel(input_dim=512, num_prototypes=N_PROTOTYPES)
+        self.prototype_matcher1_3 = PrototypeMatchingModel(input_dim=512, num_prototypes=N_PROTOTYPES)
+        self.prototype_matcher1_4 = PrototypeMatchingModel(input_dim=512, num_prototypes=N_PROTOTYPES)
+        self.prototype_matcher2 = PrototypeMatchingModel(input_dim=10, num_prototypes=10)
 
     def forward(self, x):
-        reconstructed_x1, indices = self.prototype_matcher1(x[0])
-        reconstructed_x2, indices = self.prototype_matcher2(x[1])
+        reconstructed_x1, indices = self.prototype_matcher1_1(x[0])
+        reconstructed_x2, indices = self.prototype_matcher1_2(x[1])
+        reconstructed_x3, indices = self.prototype_matcher1_3(x[2])
+        reconstructed_x4, indices = self.prototype_matcher1_4(x[3])
+        reconstructed_x5, indices = self.prototype_matcher2(x[4])
         #reconstructed_x3, indices = self.prototype_matcher3(x[2])
-        return reconstructed_x1, reconstructed_x2#, reconstructed_x3
+        return reconstructed_x1, reconstructed_x2, reconstructed_x3, reconstructed_x4, reconstructed_x5
 
     def training_step(self, train_batch, batch_idx):
-        opt_reg = self.optimizers()
+        #opt_reg = self.optimizers()
         x, _ = train_batch
         with torch.no_grad():
             _ = net(x.cuda())
 
-        orig_acts = [activations[n] for n in ["b4_relu1", "fc"]]
+        orig_acts = [activations[n] for n in ["b4_relu1", "b4_relu1", "b4_relu1", "b4_relu1", "fc"]]
         rec_acts = self.forward(orig_acts)
 
         layer_losses = [self.loss(rec, orig) for rec, orig in zip(rec_acts, orig_acts)]
         train_loss = torch.sum(torch.stack(layer_losses))
         self.log('train_loss', train_loss)
 
-        opt_reg.zero_grad()
-        self.manual_backward(train_loss)
-        opt_reg.step()
+        #opt_reg.zero_grad()
+        #self.manual_backward(train_loss)
+        #opt_reg.step()
+        return train_loss
 
     def configure_optimizers(self):
-        opt_reg = torch.optim.Adam(self.parameters(), lr=0.1) # , weight_decay=1e-1
+        opt_reg = torch.optim.Adam(self.parameters(), lr=1e-2) # , 0.1
         sch_reg = torch.optim.lr_scheduler.MultiStepLR(opt_reg, [3, 5], gamma=0.1)
         return [opt_reg], [sch_reg] # sch_reg, sch_cls
 
@@ -108,11 +117,14 @@ def get_activation(name):
 def reconstruct_score(model, x):
     with torch.no_grad():
         _ = net(x.cuda())
-    acts = [activations[n] for n in ["b4_relu1", "fc"]]
+    acts = [activations[n] for n in ["b4_relu1", "b4_relu1", "b4_relu1", "b4_relu1", "fc"]]
 
     layer_scores = []
     prots = [
-        model.prototype_matcher1.prototype_bank.T.unsqueeze(0).unsqueeze(2),
+        model.prototype_matcher1_1.prototype_bank.T.unsqueeze(0).unsqueeze(2),
+        model.prototype_matcher1_2.prototype_bank.T.unsqueeze(0).unsqueeze(2),
+        model.prototype_matcher1_3.prototype_bank.T.unsqueeze(0).unsqueeze(2),
+        model.prototype_matcher1_4.prototype_bank.T.unsqueeze(0).unsqueeze(2),
         model.prototype_matcher2.prototype_bank.T.unsqueeze(0).unsqueeze(2), # 1, emb_size, 1, n_prot
         #model.prototype_matcher3.prototype_bank.T.unsqueeze(0).unsqueeze(2)
     ]
@@ -126,8 +138,8 @@ def reconstruct_score(model, x):
         similarities = torch.square(batch_tokens - prot).mean(dim=1)#.mean(dim=-2)
         #similarities = torch.mean(torch.mean(similarities, dim=1), dim=1) # batch_size
 
-        similarities = similarities.mean(dim=1, keepdim=True)
-        similarities_cos = similarities_cos.max(dim=1, keepdim=True).values
+        similarities = similarities.flatten(start_dim=-2)#.mean(dim=1, keepdim=True)
+        similarities_cos = similarities_cos.flatten(start_dim=-2)#.max(dim=1, keepdim=True).values
         layer_scores.append(similarities.cpu().numpy())
         layer_scores.append(similarities_cos.cpu().numpy())
 
@@ -149,6 +161,7 @@ if ID_DATASET == DATASET_CIFAR10:
 
     #net.layer4[1].conv1.register_forward_hook(get_activation('b4_relu1'))
     
+    net.layer3[1].conv1.register_forward_hook(get_activation('b3_relu1'))
     net.layer4[1].conv1.register_forward_hook(get_activation('b4_relu1'))
     #net.layer1[1].conv1.register_forward_hook(get_activation('pool'))
     net.fc.register_forward_hook(get_activation('fc'))
@@ -167,6 +180,8 @@ elif ID_DATASET == DATASET_CIFAR100:
     net.load_state_dict(torch.load(model_path))
     net.eval(); net.cuda();
     model = ReconstructModel(512).cuda()
+
+    net.layer3[1].conv1.register_forward_hook(get_activation('b3_relu1'))
     net.layer4[1].conv1.register_forward_hook(get_activation('b4_relu1'))
     net.fc.register_forward_hook(get_activation('fc'))
 
@@ -265,7 +280,11 @@ if OOD_TRAIN_DATASET == DATASET_TINYIMAGENET:
             tt.Normalize(mean, std)
         ]
         if resize is not None:
+            #transforms.insert(1, tt.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1))
+            #transforms.insert(1, tt.RandomPerspective(distortion_scale=0.5, p=0.5))
+            #transforms.insert(1, tt.RandomAffine(degrees=15, translate=(0.1, 0.1), scale=(0.9, 1.1), shear=10))
             transforms.insert(1, tt.Resize((resize, resize)))
+            
         transform = tt.Compose(transforms)
         def transform_fn(examples):
             examples["image"] = [transform(image) for image in examples["image"]]
@@ -284,7 +303,7 @@ if OOD_TRAIN_DATASET == DATASET_TINYIMAGENET:
 
         test_dataset = load_dataset('Maysee/tiny-imagenet', split='train')
         test_idx = np.random.permutation(len(test_dataset))
-        test_idx = [int(i) for i in test_idx[:1000]]
+        test_idx = [int(i) for i in test_idx[:10000]] # [:10000]
         test_dataset.set_transform(transform_fn)
         test_dataset = torch.utils.data.Subset(test_dataset, indices=test_idx)
         test_loader = torch.utils.data.DataLoader(
@@ -326,13 +345,14 @@ ood_training_loader = get_ood_training_dataset()
 ood_training_scores  = score_dataset(model, ood_training_loader)
 
 if OOD_TRAIN_DATASET == DATASET_TINYIMAGENET:
-    for resize in [88, 76, 58, 52, 40, 28]:
+    for resize in [88, 82, 76, 68, 58, 52, 47, 40, 34, 28]:
         print(f"Resize: {resize}")
         ood_training_loader = get_ood_training_dataset(resize=resize)
         ood_training_scores_aug  = score_dataset(model, ood_training_loader)
         ood_training_scores = np.concatenate([ood_training_scores, ood_training_scores_aug], axis=0)
 
-ood_mean_scores = ood_training_scores.mean(axis=1)
+# %%
+ood_mean_scores = ood_training_scores#.mean(axis=1)
 
 X_ood = np.concatenate([
     ood_mean_scores, 
@@ -340,7 +360,7 @@ X_ood = np.concatenate([
 y_ood = np.zeros(len(X_ood), dtype=np.int32)
 
 # Get the id training data
-id_mean_scores = train_id_scores.mean(axis=1)
+id_mean_scores = train_id_scores#.mean(axis=1)
 X_id = np.concatenate([
     id_mean_scores
 ], axis=1)
@@ -364,7 +384,6 @@ y_test = y_arr
 scaler = StandardScaler()
 X_train = scaler.fit_transform(X_train)
 X_test = scaler.transform(X_test)
-
 # %%
 class MetamodelDataset(torch.utils.data.Dataset):
     def __init__(self, data, labels):
@@ -378,7 +397,7 @@ class MetamodelDataset(torch.utils.data.Dataset):
         return self.data[idx], self.labels[idx]
 
 class MLP(pl.LightningModule):
-    def __init__(self, input_size, hidden_size=100, output_size=2):
+    def __init__(self, input_size, hidden_size=20, output_size=2):
         super(MLP, self).__init__()
         self.automatic_optimization = False
         self.fc1 = nn.Linear(input_size, hidden_size)
@@ -426,7 +445,7 @@ metamodel_loader = torch.utils.data.DataLoader(
 
 # Train the model
 logger = TensorBoardLogger(save_dir="training_logs_metamodel")
-trainer = pl.Trainer(max_epochs=30, logger=logger, accumulate_grad_batches=1, precision=32, log_every_n_steps=5)
+trainer = pl.Trainer(max_epochs=1, logger=logger, accumulate_grad_batches=1, precision=32, log_every_n_steps=5)
 trainer.fit(metamodel, metamodel_loader)
 metamodel.eval(); metamodel.cuda();
 
@@ -471,11 +490,12 @@ class PrototypePostprocessor(BasePostprocessor):
 
     @torch.no_grad()
     def postprocess(self, net, data):
-        s = reconstruct_score(model, data.cuda())[:, 0]
+        s = reconstruct_score(model, data.cuda())#[:, 0]
         features = np.array(np.concatenate([
             s,
         ], axis=1))
         features = scaler.transform(features)
+        #features[features > 0] = 0
         features = torch.tensor(features).cuda()
         y_pred = metamodel(features).cpu()
         pred = y_pred[:, 1] > 0.5
