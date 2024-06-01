@@ -1,4 +1,5 @@
 # %%
+# Experiment: Train 1x1 convs instead of prototypes
 # Initialize
 # 0.9641
 import torch
@@ -49,49 +50,6 @@ normalization_dict = {
 }
 mean, std = normalization_dict[ID_DATASET]
 
-class ReconstructModel(pl.LightningModule):
-    def __init__(self, input_dim=128):
-        super(ReconstructModel, self).__init__()
-        self.automatic_optimization = False
-        self.loss = nn.MSELoss()
-
-        self.prototype_matcher1 = PrototypeMatchingModel(input_dim=512, num_prototypes=N_PROTOTYPES)
-        #self.prototype_matcher2 = PrototypeMatchingModel(input_dim=64, num_prototypes=N_PROTOTYPES)
-        self.prototype_matcher2 = PrototypeMatchingModel(input_dim=10, num_prototypes=40)
-
-    def forward(self, x):
-        reconstructed_x1, indices = self.prototype_matcher1(x[0])
-        reconstructed_x2, indices = self.prototype_matcher2(x[1])
-        #reconstructed_x3, indices = self.prototype_matcher3(x[2])
-        return reconstructed_x1, reconstructed_x2#, reconstructed_x3
-
-    def training_step(self, train_batch, batch_idx):
-        opt_reg = self.optimizers()
-        x, _ = train_batch
-        with torch.no_grad():
-            _ = net(x.cuda())
-
-        orig_acts = [activations[n] for n in ["b4_relu1", "fc"]]
-        rec_acts = self.forward(orig_acts)
-
-        layer_losses = [self.loss(rec, orig) for rec, orig in zip(rec_acts, orig_acts)]
-        train_loss = torch.sum(torch.stack(layer_losses))
-        self.log('train_loss', train_loss)
-
-        opt_reg.zero_grad()
-        self.manual_backward(train_loss)
-        opt_reg.step()
-
-    def configure_optimizers(self):
-        opt_reg = torch.optim.Adam(self.parameters(), lr=0.1) # , weight_decay=1e-1
-        sch_reg = torch.optim.lr_scheduler.MultiStepLR(opt_reg, [3, 5], gamma=0.1)
-        return [opt_reg], [sch_reg] # sch_reg, sch_cls
-
-    def on_train_epoch_end(self) -> None:
-        sch_reg = self.lr_schedulers()
-        sch_reg.step()
-        return super().on_train_epoch_end()
-
     
 # %%
 
@@ -105,35 +63,6 @@ def get_activation(name):
         activations[name] = output
     return hook
 
-def reconstruct_score(model, x):
-    with torch.no_grad():
-        _ = net(x.cuda())
-    acts = [activations[n] for n in ["b4_relu1", "fc"]]
-
-    layer_scores = []
-    prots = [
-        model.prototype_matcher1.prototype_bank.T.unsqueeze(0).unsqueeze(2),
-        model.prototype_matcher2.prototype_bank.T.unsqueeze(0).unsqueeze(2), # 1, emb_size, 1, n_prot
-        #model.prototype_matcher3.prototype_bank.T.unsqueeze(0).unsqueeze(2)
-    ]
-    for act, prot in zip(acts, prots):
-        h, w = act.shape[-2:]
-        batch_tokens = act.flatten(start_dim=2).unsqueeze(-1) # batch_size, n_features, h*w, 1
-        #print(batch_tokens.shape)
-
-        #emb_size, n_prot = model.prototype_matcher.prototype_bank.shape
-        similarities_cos = (F.normalize(batch_tokens, dim=1) * F.normalize(prot, dim=1)).sum(dim=1) # batch_size, h*w, n_prot
-        similarities = torch.square(batch_tokens - prot).mean(dim=1)#.mean(dim=-2)
-        #similarities = torch.mean(torch.mean(similarities, dim=1), dim=1) # batch_size
-
-        similarities = similarities.mean(dim=1, keepdim=True)
-        similarities_cos = similarities_cos.max(dim=1, keepdim=True).values
-        layer_scores.append(similarities.cpu().numpy())
-        layer_scores.append(similarities_cos.cpu().numpy())
-
-    layer_scores = np.concatenate(layer_scores, axis=-1)
-    return layer_scores
-
 # %%
 
 dataset_path = "/home/ozan/projects/git/prototype-similarity/data"
@@ -145,12 +74,12 @@ if ID_DATASET == DATASET_CIFAR10:
     net = ResNet18_32x32(num_classes=10)
     net.load_state_dict(torch.load(model_path))
     net.eval(); net.cuda();
-    model = ReconstructModel(512).cuda()
-
-    #net.layer4[1].conv1.register_forward_hook(get_activation('b4_relu1'))
+    #model = ReconstructModel(512).cuda()
     
+    #net.layer1[1].conv1.register_forward_hook(get_activation('b1_relu1'))
+    #net.layer2[1].conv1.register_forward_hook(get_activation('b2_relu1'))
+    #net.layer3[1].conv1.register_forward_hook(get_activation('b3_relu1'))
     net.layer4[1].conv1.register_forward_hook(get_activation('b4_relu1'))
-    #net.layer1[1].conv1.register_forward_hook(get_activation('pool'))
     net.fc.register_forward_hook(get_activation('fc'))
 
     test_transform = tt.Compose([tt.ToTensor(), tt.Normalize(mean, std)])
@@ -221,11 +150,11 @@ test_loader = torch.utils.data.DataLoader(
     shuffle=True
 )
 
-logger = TensorBoardLogger(save_dir="training_logs")
+"""logger = TensorBoardLogger(save_dir="training_logs")
 trainer = pl.Trainer(max_epochs=3, logger=logger, accumulate_grad_batches=1, precision=32, log_every_n_steps=5)
 net.eval()
 trainer.fit(model, train_loader)
-model.eval(); model.cuda();
+model.eval(); model.cuda();"""
 
 # %%
 import numpy as np
@@ -250,9 +179,27 @@ def collate_fn(examples):
     labels = torch.tensor(labels)
     return images, labels
 
+class RandomResizeCenterCrop:
+    def __init__(self, size_options):
+        self.size_options = size_options
+    
+    def __call__(self, img):
+        # Select a random size from the options
+        selected_size = random.choice(self.size_options)
+        
+        # Resize the image
+        resize_transform = tt.Resize(selected_size)
+        img_resized = resize_transform(img)
+        return img_resized
+
 class MetamodelDataset(torch.utils.data.Dataset):
     def __init__(self):
-        self.dataset1 = load_dataset('Maysee/tiny-imagenet', split='train')
+        dataset1 = load_dataset('Maysee/tiny-imagenet', split='train')
+        test_idx = np.random.permutation(len(dataset1))
+        test_idx = [int(i) for i in test_idx[:1000]]
+        dataset1 = torch.utils.data.Subset(dataset1, indices=test_idx)
+        self.dataset1 = dataset1
+
         self.dataset2 = torchvision.datasets.CIFAR10(dataset_path, 
             train=True, transform=None, download=True)
         self.length1 = len(self.dataset1)
@@ -261,7 +208,7 @@ class MetamodelDataset(torch.utils.data.Dataset):
 
         transforms_cifar10 = [
             ToRGB(),
-            tt.RandomResizedCrop((32,32), scale=(0.9, 1.1)),
+            #tt.RandomResizedCrop((32,32), scale=(0.9, 1.1)),
             tt.ToTensor(),
             tt.Normalize(mean, std)
         ]
@@ -269,6 +216,8 @@ class MetamodelDataset(torch.utils.data.Dataset):
         transforms_tin = [
             ToRGB(),
             tt.RandomResizedCrop((32,32), scale=(0.4, 1.3)),
+            #RandomResizeCenterCrop([88, 76, 58, 52, 40, 28]),
+            tt.CenterCrop(32),
             tt.ToTensor(),
             tt.Normalize(mean, std)
         ]
@@ -291,69 +240,59 @@ class MetamodelDataset(torch.utils.data.Dataset):
 
         return data, label
     
-
 # %%
+class FeatureExtractor(nn.Module):
+    def __init__(self, n_channels, n_features):
+        super(FeatureExtractor, self).__init__()
+        self.conv1x1 = nn.Conv2d(n_channels, n_features, kernel_size=1)
 
-def reconstruct_score(model, x):
-    with torch.no_grad():
-        _ = net(x.cuda())
-    acts = [activations[n] for n in ["b4_relu1", "fc"]]
-
-    layer_scores = []
-    prots = [
-        model.prototype_matcher1.prototype_bank.T.unsqueeze(0).unsqueeze(2),
-        model.prototype_matcher2.prototype_bank.T.unsqueeze(0).unsqueeze(2), # 1, emb_size, 1, n_prot
-        #model.prototype_matcher3.prototype_bank.T.unsqueeze(0).unsqueeze(2)
-    ]
-    for act, prot in zip(acts, prots):
-        h, w = act.shape[-2:]
-        batch_tokens = act.flatten(start_dim=2).unsqueeze(-1) # batch_size, n_features, h*w, 1
-        #print(batch_tokens.shape)
-
-        #emb_size, n_prot = model.prototype_matcher.prototype_bank.shape
-        similarities_cos = (F.normalize(batch_tokens, dim=1) * F.normalize(prot, dim=1)).sum(dim=1) # batch_size, h*w, n_prot
-        similarities = torch.square(batch_tokens - prot).mean(dim=1)#.mean(dim=-2)
-        #similarities = torch.mean(torch.mean(similarities, dim=1), dim=1) # batch_size
-
-        similarities = similarities.mean(dim=1, keepdim=True)
-        similarities_cos = similarities_cos.max(dim=1, keepdim=True).values
-        layer_scores.append(similarities)
-        layer_scores.append(similarities_cos)
-
-    layer_scores = torch.cat(layer_scores, axis=-1)
-    return layer_scores
+    def forward(self, x):
+        # x is expected to be of shape (batch_size, n_channels, h, w)
+        features = self.conv1x1(x)
+        features = features.mean(dim=-1).mean(dim=-1)
+        return features
 
 class MLP(pl.LightningModule):
-    def __init__(self, input_size, hidden_size=100, output_size=2):
+    def __init__(self, hidden_size=100, output_size=2):
         super(MLP, self).__init__()
         self.automatic_optimization = False
-        self.fc1 = nn.Linear(input_size, hidden_size)
+        #self.extractor1 = FeatureExtractor(64, 128)
+        #self.extractor2 = FeatureExtractor(128, 256)
+        #self.extractor3 = FeatureExtractor(256, 512)
+        self.extractor4 = FeatureExtractor(512, 1024)
+        self.extractor5 = FeatureExtractor(10, 40)
+
+        self.fc1 = nn.Linear(1024+40, hidden_size) # 128+256+512+
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(hidden_size, output_size)
         self.sigmoid = nn.Sigmoid()
         self.loss = nn.BCELoss()
 
-    def forward(self, x):
-        out = self.fc1(x)
+    def get_intermediate_acts(self, net, x):
+        with torch.no_grad():
+            _ = net(x.cuda())
+        acts = [activations[n] for n in ["b4_relu1", "fc"]] # "b1_relu1", "b2_relu1", "b3_relu1", 
+        return acts
+
+    def forward(self, x_img):
+        acts = self.get_intermediate_acts(net, x_img)
+        #f1 = self.extractor1(acts[0]) # batch_size, n_feat
+        #f2 = self.extractor2(acts[1])
+        #f3 = self.extractor3(acts[2])
+        f4 = self.extractor4(acts[0])
+        f5 = self.extractor5(acts[1])
+        features = torch.cat([f4, f5], dim=1) # f1, f2, f3, 
+
+        out = self.fc1(features)
         out = self.relu(out)
         out = self.fc2(out)
         out = self.sigmoid(out)
         return out
     
-    def get_prot_scores(self, x_img):
-        return reconstruct_score(model, x_img)[:, 0, :]
-    
-    def score_images(self, x_img):
-        prot_scores = self.get_prot_scores(x_img)
-        ood_scores = self.forward(prot_scores)
-        return ood_scores
-    
     def training_step(self, train_batch, batch_idx):
         opt_reg = self.optimizers()
         x_img, y = train_batch
-
-        prot_scores = self.get_prot_scores(x_img)
-        y_pred = self.forward(prot_scores)
+        y_pred = self.forward(x_img)
         train_loss_mlp = self.loss(y_pred, y)
         self.log('train_loss_mlp', train_loss_mlp)
 
@@ -362,7 +301,7 @@ class MLP(pl.LightningModule):
         opt_reg.step()
     
     def configure_optimizers(self):
-        opt_reg = torch.optim.Adam(self.parameters(), lr=1e-2) # , weight_decay=1e-1
+        opt_reg = torch.optim.Adam(self.parameters(), lr=1e-3) # , weight_decay=1e-1
         sch_reg = torch.optim.lr_scheduler.MultiStepLR(opt_reg, [10, 20], gamma=0.1)
         return [opt_reg], [sch_reg]
     
@@ -372,7 +311,7 @@ class MLP(pl.LightningModule):
         return super().on_train_epoch_end()
 
 
-metamodel = MLP(input_size=580).cuda()
+metamodel = MLP().cuda()
 metamodel_dataset = MetamodelDataset()
 metamodel_loader = torch.utils.data.DataLoader(
     metamodel_dataset,
@@ -393,7 +332,7 @@ with torch.no_grad():
     preds = []
     labels = []
     for x_batch, y_batch in tqdm(metamodel_loader):
-        preds.append(metamodel.score_images(x_batch.cuda()).cpu())
+        preds.append(metamodel(x_batch.cuda()).cpu())
         labels.append(y_batch)
     
     preds = torch.cat(preds)
@@ -426,7 +365,7 @@ class PrototypePostprocessor(BasePostprocessor):
 
     @torch.no_grad()
     def postprocess(self, net, data):
-        y_pred = metamodel.score_images(data.cuda())
+        y_pred = metamodel(data.cuda())
         pred = y_pred[:, 1] > 0.5
         conf = y_pred[:, 1]
         return pred, conf
