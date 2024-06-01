@@ -57,7 +57,7 @@ class ReconstructModel(pl.LightningModule):
 
         self.prototype_matcher1 = PrototypeMatchingModel(input_dim=512, num_prototypes=N_PROTOTYPES)
         #self.prototype_matcher2 = PrototypeMatchingModel(input_dim=64, num_prototypes=N_PROTOTYPES)
-        self.prototype_matcher2 = PrototypeMatchingModel(input_dim=10, num_prototypes=40)
+        self.prototype_matcher2 = PrototypeMatchingModel(input_dim=10, num_prototypes=50)
 
     def forward(self, x):
         reconstructed_x1, indices = self.prototype_matcher1(x[0])
@@ -167,12 +167,13 @@ elif ID_DATASET == DATASET_CIFAR100:
     net.load_state_dict(torch.load(model_path))
     net.eval(); net.cuda();
     model = ReconstructModel(512).cuda()
-    net.layer4[0].conv1.register_forward_hook(get_activation('b4_relu1'))
+    net.layer4[1].conv1.register_forward_hook(get_activation('b4_relu1'))
+    net.fc.register_forward_hook(get_activation('fc'))
 
     test_transform = tt.Compose([tt.ToTensor(), tt.Normalize(mean, std)])
     train_dataset = torchvision.datasets.CIFAR100(dataset_path, train=True, transform=test_transform, download=True)
     test_dataset = torchvision.datasets.CIFAR100(dataset_path, train=False, transform=test_transform, download=True)
-    batch_size = 32
+    batch_size = 16
 
 elif ID_DATASET == DATASET_IMAGENET200:
     model_path = "/home/ozan/projects/git/prototype-similarity/model/imagenet200_res18_v1.5/imagenet200_resnet18_224x224_base_e90_lr0.1_default/s0/best.ckpt"
@@ -215,11 +216,11 @@ train_loader = torch.utils.data.DataLoader(
     batch_size=batch_size,
     shuffle=True
 )
-test_loader = torch.utils.data.DataLoader(
+"""test_loader = torch.utils.data.DataLoader(
     test_dataset,
     batch_size=batch_size,
     shuffle=True
-)
+)"""
 # %%
 logger = TensorBoardLogger(save_dir="training_logs")
 trainer = pl.Trainer(max_epochs=3, logger=logger, accumulate_grad_batches=1, precision=32, log_every_n_steps=5)
@@ -282,13 +283,13 @@ if OOD_TRAIN_DATASET == DATASET_TINYIMAGENET:
             return images, labels
 
         test_dataset = load_dataset('Maysee/tiny-imagenet', split='train')
-        #test_idx = np.random.permutation(len(test_dataset))
-        #test_idx = [int(i) for i in test_idx]
+        test_idx = np.random.permutation(len(test_dataset))
+        test_idx = [int(i) for i in test_idx[:1000]]
         test_dataset.set_transform(transform_fn)
-        #test_dataset = Subset(test_dataset, indices=test_idx)
+        test_dataset = torch.utils.data.Subset(test_dataset, indices=test_idx)
         test_loader = torch.utils.data.DataLoader(
             test_dataset,
-            batch_size=32, 
+            batch_size=16, 
             shuffle=False,
             collate_fn=collate_fn
         )
@@ -377,7 +378,7 @@ class MetamodelDataset(torch.utils.data.Dataset):
         return self.data[idx], self.labels[idx]
 
 class MLP(pl.LightningModule):
-    def __init__(self, input_size, hidden_size=50, output_size=2):
+    def __init__(self, input_size, hidden_size=100, output_size=2):
         super(MLP, self).__init__()
         self.automatic_optimization = False
         self.fc1 = nn.Linear(input_size, hidden_size)
