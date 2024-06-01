@@ -1,8 +1,64 @@
 # %%
 
 # More OOD data helped a lot in CIFAR100, add the graph to paper
+# There is a tradeoff between far and near ood scores, why would that be?
 # Initialize
 # 0.9641
+
+########### ID: cifar100 ##############################
+#          FPR@95  AUROC  AUPR_IN  AUPR_OUT   ACC
+# prot train id: cifar100
+"""
+cifar10     76.76  73.16    71.63     70.93 77.17
+tin         46.84  85.09    89.69     77.27 77.17
+nearood     61.80  79.13    80.66     74.10 77.17
+mnist       32.63  90.17    73.03     98.06 77.17
+svhn        15.73  96.40    93.13     98.51 77.17
+texture     51.90  84.31    89.68     74.02 77.17
+places365   59.26  80.81    60.35     92.53 77.17
+farood      39.88  87.92    79.05     90.78 77.17
+"""
+
+# prot notrain, id: cifar100
+"""
+cifar10     80.43  70.02    67.71     68.71 77.17
+tin         47.72  85.21    89.72     77.93 77.17
+nearood     64.08  77.61    78.72     73.32 77.17
+mnist       28.08  91.10    75.43     98.11 77.17
+svhn        14.14  96.65    93.92     98.59 77.17
+texture     54.04  85.41    90.30     77.76 77.17
+places365   55.46  82.73    63.85     93.41 77.17
+farood      37.93  88.97    80.88     91.97 77.17
+"""
+
+########### ID: cifar10 ##############################
+# prot train, id: cifar10
+"""
+cifar100    30.13  91.72    92.38     90.26 94.63
+tin         18.77  95.05    96.16     93.33 94.63
+nearood     24.45  93.39    94.27     91.80 94.63
+mnist        6.47  98.08    94.46     99.59 94.63
+svhn         4.99  98.93    97.75     99.57 94.63
+texture     13.40  96.79    97.83     95.00 94.63
+places365   18.74  95.28    89.57     98.45 94.63
+farood      10.90  97.27    94.90     98.15 94.63
+"""
+
+# prot notrain, id: cifar10
+"""
+cifar100    33.39  91.54    91.97     90.46 94.63
+tin         17.86  95.43    96.41     94.03 94.63
+nearood     25.62  93.48    94.19     92.25 94.63
+mnist        8.07  97.79    92.15     99.57 94.63
+svhn         3.62  99.26    98.40     99.72 94.63
+texture     10.69  97.26    98.27     95.58 94.63
+places365   17.07  96.07    90.53     98.77 94.63
+farood       9.86  97.60    94.84     98.41 94.63
+"""
+
+
+
+# noprot 0.66 0.87
 import torch
 import torchvision
 import numpy as np
@@ -21,6 +77,10 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 from prototype_matching_model import PrototypeMatchingModel
 
+class ToRGB:
+    def __call__(self, img):
+        return img.convert('RGB')
+
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -37,7 +97,7 @@ DATASET_IMAGENET = "imagenet"
 DATASET_IMAGENET200 = "imagenet200"
 
 ID_DATASET = DATASET_CIFAR10
-OOD_TRAIN_DATASET = DATASET_TINYIMAGENET
+OOD_TRAIN_DATASET = DATASET_CIFAR10
 
 normalization_dict = {
     'cifar10': [[0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616]],
@@ -62,7 +122,7 @@ class ReconstructModel(pl.LightningModule):
         self.prototype_matcher1_2 = PrototypeMatchingModel(input_dim=512, num_prototypes=N_PROTOTYPES)
         self.prototype_matcher1_3 = PrototypeMatchingModel(input_dim=512, num_prototypes=N_PROTOTYPES)
         self.prototype_matcher1_4 = PrototypeMatchingModel(input_dim=512, num_prototypes=N_PROTOTYPES)
-        self.prototype_matcher2 = PrototypeMatchingModel(input_dim=10, num_prototypes=10)
+        self.prototype_matcher2 = PrototypeMatchingModel(input_dim=10, num_prototypes=40)
 
     def forward(self, x):
         reconstructed_x1, indices = self.prototype_matcher1_1(x[0])
@@ -158,12 +218,9 @@ if ID_DATASET == DATASET_CIFAR10:
     net.load_state_dict(torch.load(model_path))
     net.eval(); net.cuda();
     model = ReconstructModel(512).cuda()
-
-    #net.layer4[1].conv1.register_forward_hook(get_activation('b4_relu1'))
     
-    net.layer3[1].conv1.register_forward_hook(get_activation('b3_relu1'))
+    net.layer1[1].register_forward_hook(get_activation('conv1'))
     net.layer4[1].conv1.register_forward_hook(get_activation('b4_relu1'))
-    #net.layer1[1].conv1.register_forward_hook(get_activation('pool'))
     net.fc.register_forward_hook(get_activation('fc'))
 
     test_transform = tt.Compose([tt.ToTensor(), tt.Normalize(mean, std)])
@@ -181,7 +238,7 @@ elif ID_DATASET == DATASET_CIFAR100:
     net.eval(); net.cuda();
     model = ReconstructModel(512).cuda()
 
-    net.layer3[1].conv1.register_forward_hook(get_activation('b3_relu1'))
+    net.layer1[1].register_forward_hook(get_activation('conv1'))
     net.layer4[1].conv1.register_forward_hook(get_activation('b4_relu1'))
     net.fc.register_forward_hook(get_activation('fc'))
 
@@ -260,17 +317,78 @@ train_id_scores = score_dataset(net, train_loader)
 # %%
 import numpy as np
 from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import roc_auc_score
+from PIL import Image
+import os.path as osp
 
-if OOD_TRAIN_DATASET == DATASET_TINYIMAGENET:
+class ImageDatasetFromFile(torch.utils.data.Dataset):
+    def __init__(self, txt_file, img_dir, transform=None):
+        """
+        Args:
+            txt_file (string): Path to the text file with image paths and labels.
+            transform (callable, optional): Optional transform to be applied
+                on a sample.
+        """
+        self.image_labels = []
+        self.img_dir = img_dir
+        with open(txt_file, 'r') as file:
+            for line in file:
+                # Split the line into filename and label
+                parts = line.strip().split()
+                if len(parts) == 2:
+                    filename, label = parts
+                    #if "/tin/test" in filename:
+                    self.image_labels.append((filename, int(label)))
+                else:
+                    raise ValueError(f"Line in text file is not in expected format: {line}")
+
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.image_labels)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        img_name, label = self.image_labels[idx]
+        img_name = osp.join(self.img_dir, img_name)
+        image = Image.open(img_name)  # Convert image to RGB
+
+        if self.transform:
+            image = self.transform(image)
+
+        return image, label
+    
+def get_ood_training_dataset(resize=None):
+    transforms = [
+        ToRGB(),
+        #tt.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+        #tt.RandomAffine(degrees=15, translate=(0.1, 0.1), scale=(0.9, 1.1), shear=10),
+        tt.CenterCrop(32),
+        tt.ToTensor(),
+        tt.Normalize(mean, std)
+    ]
+    if resize is not None:
+        transforms.insert(1, tt.Resize((resize, resize)))
+        
+    transform = tt.Compose(transforms)
+    ood_dataset = ImageDatasetFromFile(
+        transform=transform,
+        txt_file="/home/ozan/projects/git/prototype-similarity/data/benchmark_imglist/cifar10/train_tin597.txt",
+        img_dir="/home/ozan/projects/git/prototype-similarity/data/images_classic"
+    )
+    ood_loader = torch.utils.data.DataLoader(
+        ood_dataset,
+        batch_size=batch_size,
+        shuffle=True
+    )
+    return ood_loader
+
+if False:#OOD_TRAIN_DATASET == DATASET_TINYIMAGENET:
     def get_ood_training_dataset(resize=None):
         from datasets import load_dataset
-
-        class ToRGB:
-            def __call__(self, img):
-                return img.convert('RGB')
 
         transforms = [
             ToRGB(),
@@ -280,10 +398,10 @@ if OOD_TRAIN_DATASET == DATASET_TINYIMAGENET:
             tt.Normalize(mean, std)
         ]
         if resize is not None:
-            #transforms.insert(1, tt.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1))
             #transforms.insert(1, tt.RandomPerspective(distortion_scale=0.5, p=0.5))
             #transforms.insert(1, tt.RandomAffine(degrees=15, translate=(0.1, 0.1), scale=(0.9, 1.1), shear=10))
             transforms.insert(1, tt.Resize((resize, resize)))
+            #transforms.insert(1, tt.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1))
             
         transform = tt.Compose(transforms)
         def transform_fn(examples):
@@ -303,7 +421,7 @@ if OOD_TRAIN_DATASET == DATASET_TINYIMAGENET:
 
         test_dataset = load_dataset('Maysee/tiny-imagenet', split='train')
         test_idx = np.random.permutation(len(test_dataset))
-        test_idx = [int(i) for i in test_idx[:10000]] # [:10000]
+        test_idx = [int(i) for i in test_idx] # [:10000]
         test_dataset.set_transform(transform_fn)
         test_dataset = torch.utils.data.Subset(test_dataset, indices=test_idx)
         test_loader = torch.utils.data.DataLoader(
@@ -314,12 +432,56 @@ if OOD_TRAIN_DATASET == DATASET_TINYIMAGENET:
         )
         return test_loader
     
-elif OOD_TRAIN_DATASET == "":
-    def get_ood_training_dataset():
-        transform = tt.Compose([
+elif False: #OOD_TRAIN_DATASET == DATASET_CIFAR100:
+    def get_ood_training_dataset(resize=None):
+        transforms = [
+            ToRGB(),
+            tt.ToTensor(),
+            tt.CenterCrop(32),
+            tt.Normalize(mean, std)
+        ]
+        if resize is not None:
+            transforms.insert(1, tt.Resize((resize, resize)))
+            
+        transform = tt.Compose(transforms)
+        ood_dataset = torchvision.datasets.CIFAR100(dataset_path, train=True, transform=transform, download=True)
+        ood_loader = torch.utils.data.DataLoader(
+            ood_dataset,
+            batch_size=batch_size,
+            shuffle=True
+        )
+        return ood_loader
+    
+elif False: #OOD_TRAIN_DATASET == DATASET_CIFAR10:
+    def get_ood_training_dataset(resize=None):
+        transforms = [
+            ToRGB(),
+            tt.ToTensor(),
+            tt.CenterCrop(32),
+            tt.Normalize(mean, std)
+        ]
+        if resize is not None:
+            transforms.insert(1, tt.Resize((resize, resize)))
+            
+        transform = tt.Compose(transforms)
+        ood_dataset = torchvision.datasets.CIFAR10(dataset_path, train=True, transform=transform, download=True)
+        ood_loader = torch.utils.data.DataLoader(
+            ood_dataset,
+            batch_size=batch_size,
+            shuffle=True
+        )
+        return ood_loader
+    
+elif False:#OOD_TRAIN_DATASET == "":
+    def get_ood_training_dataset(resize=None):
+        transforms = [
             tt.Resize((384, 512)),
             test_transform
-        ])
+        ]
+        if resize is not None:
+            transforms.insert(1, tt.Resize((resize, resize)))
+
+            transform = tt.Compose(transform)
         train_dataset = torchvision.datasets.CIFAR100(dataset_path, train=True, transform=transform, download=True)
         train_loader = torch.utils.data.DataLoader(
             train_dataset,
@@ -327,29 +489,18 @@ elif OOD_TRAIN_DATASET == "":
             shuffle=False
         )
         return train_loader
-elif OOD_TRAIN_DATASET == DATASET_CIFAR100:
-    def get_ood_training_dataset():
-        test_transform = tt.Compose([tt.ToTensor(), tt.Normalize(mean, std)])
-        test_dataset = torchvision.datasets.CIFAR100(dataset_path, train=False, transform=test_transform, download=True)
-        test_loader = torch.utils.data.DataLoader(
-            test_dataset,
-            batch_size=batch_size,
-            shuffle=True
-        )
-        return test_loader
-        
 
 # Get the ood training data
 print("Getting the ood training dataset for id classification")
 ood_training_loader = get_ood_training_dataset()
 ood_training_scores  = score_dataset(model, ood_training_loader)
 
-if OOD_TRAIN_DATASET == DATASET_TINYIMAGENET:
-    for resize in [88, 82, 76, 68, 58, 52, 47, 40, 34, 28]:
-        print(f"Resize: {resize}")
-        ood_training_loader = get_ood_training_dataset(resize=resize)
-        ood_training_scores_aug  = score_dataset(model, ood_training_loader)
-        ood_training_scores = np.concatenate([ood_training_scores, ood_training_scores_aug], axis=0)
+#if OOD_TRAIN_DATASET == DATASET_TINYIMAGENET:
+for resize in [88, 82, 76, 68, 58, 52, 47, 40, 34, 28]:
+    print(f"Resize: {resize}")
+    ood_training_loader = get_ood_training_dataset(resize=resize)
+    ood_training_scores_aug  = score_dataset(model, ood_training_loader)
+    ood_training_scores = np.concatenate([ood_training_scores, ood_training_scores_aug], axis=0)
 
 # %%
 ood_mean_scores = ood_training_scores#.mean(axis=1)
@@ -397,7 +548,7 @@ class MetamodelDataset(torch.utils.data.Dataset):
         return self.data[idx], self.labels[idx]
 
 class MLP(pl.LightningModule):
-    def __init__(self, input_size, hidden_size=20, output_size=2):
+    def __init__(self, input_size, hidden_size=50, output_size=2):
         super(MLP, self).__init__()
         self.automatic_optimization = False
         self.fc1 = nn.Linear(input_size, hidden_size)
@@ -435,6 +586,7 @@ class MLP(pl.LightningModule):
         sch_reg.step()
         return super().on_train_epoch_end()
 
+# Train the OOD classifier
 metamodel = MLP(input_size=X_train.shape[1]).cuda()
 metamodel_dataset = MetamodelDataset(X_train, y_arr)
 metamodel_loader = torch.utils.data.DataLoader(
@@ -445,7 +597,7 @@ metamodel_loader = torch.utils.data.DataLoader(
 
 # Train the model
 logger = TensorBoardLogger(save_dir="training_logs_metamodel")
-trainer = pl.Trainer(max_epochs=1, logger=logger, accumulate_grad_batches=1, precision=32, log_every_n_steps=5)
+trainer = pl.Trainer(max_epochs=2, logger=logger, accumulate_grad_batches=1, precision=32, log_every_n_steps=5)
 trainer.fit(metamodel, metamodel_loader)
 metamodel.eval(); metamodel.cuda();
 
@@ -483,7 +635,7 @@ import openood.utils.comm as comm
 class PrototypePostprocessor(BasePostprocessor):
     def __init__(self, config):
         super(PrototypePostprocessor, self).__init__(config)
-        self.APS_mode = False
+        self.APS_mode = False # hparam search
 
     def setup(self, net: nn.Module, id_loader_dict, ood_loader_dict):
         pass

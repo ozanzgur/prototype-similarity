@@ -1,11 +1,14 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+import torch.nn.functional as F 
 
 class PrototypeMatchingModel(nn.Module):
     def __init__(self, input_dim, num_prototypes):
         super(PrototypeMatchingModel, self).__init__()
-        self.prototype_bank = nn.Parameter(torch.randn(num_prototypes, input_dim), requires_grad=True) # *0.01 # .abs()
+        self.num_prototypes = num_prototypes
+        prot_init = torch.randn(num_prototypes, input_dim)
+        #prot_init[prot_init < 0] = 0
+        self.prototype_bank = nn.Parameter(prot_init, requires_grad=True) # *0.01 # .abs()
         self.input_dim = input_dim
         self.prototype_usage_counts = torch.zeros(num_prototypes, dtype=torch.int32).cuda()
     
@@ -41,9 +44,9 @@ class PrototypeMatchingModel(nn.Module):
         reconstructed = reconstructed.reshape(batch_size, height, width, channels).permute(0, 3, 1, 2)
         return reconstructed, indices
 
-    def reinit_unused(self, n=100):
+    def reinit_unused(self, frac=0.33):
         # Reinit bottom N prototypes
-        idx_to_reinit = torch.argsort(self.prototype_usage_counts, dim=0)[:n]
+        idx_to_reinit = torch.argsort(self.prototype_usage_counts, dim=0)[:int(self.num_prototypes*frac)]
         print(f"Reinitialize: {idx_to_reinit.cpu().detach().numpy()}")
 
         bank_detach = self.prototype_bank.detach()
