@@ -8,9 +8,11 @@ __pycache__/
 *.so
 
 data/
+results/
 model/
 prototype_similarity/data
 prototype_similarity/training_logs
+prototype_similarity/training_logs_metamodel
 
 # Distribution / packaging
 .Python
