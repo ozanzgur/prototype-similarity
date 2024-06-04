@@ -2,9 +2,15 @@ import torch
 from torch import nn
 import os.path as osp
 from PIL import Image
+import numpy as np
 
 from openood.postprocessors import BasePostprocessor
 import openood.utils.comm as comm
+
+def subsample_dataset(dataset, sample_size):
+    idx = np.random.permutation(len(dataset))
+    idx = [int(i) for i in idx[:sample_size]]
+    return torch.utils.data.Subset(dataset, indices=idx)
 
 class ToRGB:
     def __call__(self, img):
@@ -32,7 +38,7 @@ class PrototypePostprocessor(BasePostprocessor):
 
 
 class ImageDatasetFromFile(torch.utils.data.Dataset):
-    def __init__(self, txt_file, img_dir, transform=None):
+    def __init__(self, txt_file, img_dir, transform=None, is_imagenet=False):
         """
         Args:
             txt_file (string): Path to the text file with image paths and labels.
@@ -47,15 +53,25 @@ class ImageDatasetFromFile(torch.utils.data.Dataset):
                 parts = line.strip().split()
                 if len(parts) == 2:
                     filename, label = parts
+                    if is_imagenet:
+                        filename = self.imgnet_format_convert(filename)
                     #if "/tin/test" in filename:
-                    self.image_labels.append((filename, int(label)))
+                    if osp.exists(osp.join(self.img_dir, filename)):
+                        self.image_labels.append((filename, int(label)))
                 else:
                     raise ValueError(f"Line in text file is not in expected format: {line}")
 
+        print(f"Existing images in file {txt_file}: {len(self.image_labels)}")
         self.transform = transform
 
     def __len__(self):
         return len(self.image_labels)
+    
+    def imgnet_format_convert(self, filename):
+        #imagenet_1k/train/n01443537/n01443537_10007.JPEG 0
+        dataset_name, set_name, dirname, filename = filename.split('/')
+        img_name, ext = filename.split('.')
+        return f"{dataset_name}/{set_name}/{img_name}_{dirname}.{ext}"
 
     def __getitem__(self, idx):
         if torch.is_tensor(idx):

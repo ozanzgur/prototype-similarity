@@ -17,7 +17,7 @@ from typing import List
 from prototype_matching_model import PrototypeMatchingModel
 
 class ReconstructModel(pl.LightningModule):
-    def __init__(self, backbone, input_dims:List[int], num_proto:List[int], act_names:List[str]):
+    def __init__(self, backbone, input_dims:List[int], num_proto:List[int], act_names:List[str], spatial_avg_features:bool):
         super(ReconstructModel, self).__init__()
         #self.automatic_optimization = False
         self.loss = nn.MSELoss()
@@ -27,6 +27,7 @@ class ReconstructModel(pl.LightningModule):
         ])
         self.act_names = act_names
         self.backbone = backbone
+        self.spatial_avg_features = spatial_avg_features
         self.activations = {}
 
     def get_activation(self, name):
@@ -55,9 +56,13 @@ class ReconstructModel(pl.LightningModule):
             similarities_cos = (F.normalize(batch_tokens, dim=1) * F.normalize(prot, dim=1)).sum(dim=1) # batch_size, h*w, n_prot
             similarities = torch.square(batch_tokens - prot).mean(dim=1)#.mean(dim=-2)
             #similarities = torch.mean(torch.mean(similarities, dim=1), dim=1) # batch_size
-
-            similarities = similarities.flatten(start_dim=-2)#.mean(dim=1)
-            similarities_cos = similarities_cos.flatten(start_dim=-2)#.max(dim=1).values
+            
+            if self.spatial_avg_features:
+                similarities = similarities.mean(dim=1)
+                similarities_cos = similarities_cos.max(dim=1).values
+            else:
+                similarities = similarities.flatten(start_dim=-2)#.mean(dim=1)
+                similarities_cos = similarities_cos.flatten(start_dim=-2)#.max(dim=1).values
             layer_scores.append(similarities.cpu().numpy())
             layer_scores.append(similarities_cos.cpu().numpy())
 
