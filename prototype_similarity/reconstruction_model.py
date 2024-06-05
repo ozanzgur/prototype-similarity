@@ -35,6 +35,9 @@ class ReconstructModel(pl.LightningModule):
             output = output.detach()
             if len(output.shape) == 2:
                 output = output.unsqueeze(-1).unsqueeze(-1)
+            if output.shape[-2] > 4:
+                kernel_size = int(output.shape[-2] / 4)
+                output = F.max_pool2d(output, kernel_size)
             #output[output < 0] = 0
             self.activations[name] = output
         return hook
@@ -49,6 +52,9 @@ class ReconstructModel(pl.LightningModule):
         
         for act, prot in zip(acts, prots):
             h, w = act.shape[-2:]
+            # if h > 4:
+            #     kernel_size = int(h / 4)
+            #     act = F.max_pool2d(act, kernel_size)
             batch_tokens = act.flatten(start_dim=2).unsqueeze(-1) # batch_size, n_features, h*w, 1
             #print(batch_tokens.shape)
 

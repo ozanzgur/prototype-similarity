@@ -7,12 +7,14 @@ from pathlib import Path
 import torch.nn.functional as F
 from tqdm import tqdm
 import os.path as osp
+import os
 import pytorch_lightning as pl
 import numpy as np
 from pathlib import Path
 from pytorch_lightning.loggers import TensorBoardLogger
 import numpy as np
 import fire
+import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import roc_auc_score
@@ -26,7 +28,7 @@ from mlp import MLP, OODClassiferDataset
 from utils import ImageDatasetFromFile, ToRGB
 from reconstruction_model import ReconstructModel
 
-project_dir = str(Path(osp.abspath('')).resolve().parents[0])
+project_dir = str(Path(__file__).resolve().parents[1])
 data_dir = osp.join(project_dir, "data")
 model_dir = osp.join(project_dir, "results")
 
@@ -54,14 +56,40 @@ normalization_dict = {
     'cars': [[0.5, 0.5, 0.5], [0.5, 0.5, 0.5]],
 }
 
+def get_resnet_layer(model, layer_name):
+    if layer_name == "conv1":
+        return model.conv1
+    if layer_name == "bn1":
+        return model.bn1
+    if layer_name == "fc":
+        return model.fc
+    if layer_name == "penultimate":
+        return model.avgpool
 
-# %%
+    i_layer, i_block, layer_type = layer_name.split('_')
+    layer = getattr(model, f"layer{int(i_layer)+1}")
+    block = layer[int(i_block)]
+    layer = getattr(block, layer_type)
+    return layer
 
-def main(
-        id_dataset=default_id_dataset,
+"""id_dataset=default_id_dataset,
         i_seed=0,
         resize_augmentation=True,
-        ood_train_size=10000, # None: use all available data
+        ood_train_size=None, # None: Use all available data
+        prototype_layer_name=None, # None: Use default prototypes
+        prototype_channels=10,
+        prototype_count=10,
+        spatial_avg_features=False"""
+
+def main(
+        id_dataset="imagenet200",
+        i_seed=0,
+        resize_augmentation=False,
+        ood_train_size=None, # None: Use all available data
+        prototype_layer_name=None, # None: Use default prototypes
+        prototype_channels=10,
+        prototype_count=10,
+        spatial_avg_features=False
         ):
     assert id_dataset in [DATASET_CIFAR10, DATASET_CIFAR100, DATASET_IMAGENET200]
     mean, std = normalization_dict[id_dataset]
@@ -77,12 +105,24 @@ def main(
         backbone.load_state_dict(torch.load(model_paths[i_seed]))
         backbone.eval(); backbone.cuda();
 
-        input_dims = [512, 512, 512, 10]
-        act_names = ["p4_relu1", "p4_relu1", "p4_relu1", "logit"]
-        num_proto = [10, 10, 10, 40]
-        model = ReconstructModel(backbone, input_dims, num_proto, act_names).cuda()
-        backbone.layer4[1].conv1.register_forward_hook(model.get_activation('p4_relu1'))
-        backbone.fc.register_forward_hook(model.get_activation('logit'))
+        if prototype_layer_name:
+            input_dims = [prototype_channels]
+            act_names = [prototype_layer_name]
+            num_proto = [prototype_count]
+
+        else:
+            input_dims = [128, 256, 512, 10]
+            act_names = ["p2_relu1", "p3_relu1", "p4_relu1", "logit"]
+            num_proto = [10, 10, 10, 40]
+        model = ReconstructModel(backbone, input_dims, num_proto, act_names, spatial_avg_features).cuda()
+        if prototype_layer_name:
+            get_resnet_layer(backbone, prototype_layer_name).register_forward_hook(model.get_activation(prototype_layer_name))
+
+        else:
+            backbone.layer2[1].conv1.register_forward_hook(model.get_activation('p2_relu1'))
+            backbone.layer3[1].conv1.register_forward_hook(model.get_activation('p3_relu1'))
+            backbone.layer4[1].conv1.register_forward_hook(model.get_activation('p4_relu1'))
+            backbone.fc.register_forward_hook(model.get_activation('logit'))
 
         test_transform = tt.Compose([tt.ToTensor(), tt.Normalize(mean, std)])
         id_train_dataset = ImageDatasetFromFile(
@@ -106,7 +146,7 @@ def main(
             transform = tt.Compose(transforms)
             ood_dataset = ImageDatasetFromFile(
                 transform=transform,
-                txt_file=osp.join(data_dir, "/benchmark_imglist/cifar10/train_tin597.txt"),
+                txt_file=osp.join(data_dir, "benchmark_imglist/cifar10/train_tin597.txt"),
                 img_dir=osp.join(data_dir, "images_classic")
             )
             if ood_train_size:
@@ -132,13 +172,23 @@ def main(
         backbone.load_state_dict(torch.load(model_paths[i_seed]))
         backbone.eval(); backbone.cuda();
 
-        input_dims = [512, 512, 512, 100]
-        act_names = ["p4_relu1", "p4_relu1", "p4_relu1", "logit"]
-        num_proto = [25, 25, 25, 100]
-        model = ReconstructModel(backbone, input_dims, num_proto, act_names).cuda()
+        if prototype_layer_name:
+            input_dims = [prototype_channels]
+            act_names = [prototype_layer_name]
+            num_proto = [prototype_count]
 
-        backbone.layer4[1].conv1.register_forward_hook(model.get_activation('p4_relu1'))
-        backbone.fc.register_forward_hook(model.get_activation('logit'))
+        else:
+            input_dims = [128, 256, 512, 100]
+            act_names = ["p2_relu1", "p3_relu1", "p4_relu1", "logit"]
+            num_proto = [25, 25, 25, 100]
+        model = ReconstructModel(backbone, input_dims, num_proto, act_names, spatial_avg_features).cuda()
+        if prototype_layer_name:
+            get_resnet_layer(backbone, prototype_layer_name).register_forward_hook(model.get_activation(prototype_layer_name))
+        else:
+            backbone.layer2[1].conv1.register_forward_hook(model.get_activation('p2_relu1'))
+            backbone.layer3[1].conv1.register_forward_hook(model.get_activation('p3_relu1'))
+            backbone.layer4[1].conv1.register_forward_hook(model.get_activation('p4_relu1'))
+            backbone.fc.register_forward_hook(model.get_activation('logit'))
 
         test_transform = tt.Compose([tt.ToTensor(), tt.Normalize(mean, std)])
         id_train_dataset = ImageDatasetFromFile(
@@ -158,7 +208,7 @@ def main(
             ]
             if resize is not None:
                 transforms.insert(1, tt.Resize((resize, resize)))
-                
+            
             transform = tt.Compose(transforms)
             ood_dataset = ImageDatasetFromFile(
                 transform=transform,
@@ -188,12 +238,24 @@ def main(
         backbone.load_state_dict(torch.load(model_paths[i_seed]))
         backbone.eval(); backbone.cuda();
 
-        input_dims = [512, 512, 512, 200]
-        act_names = ["p4_relu1", "p4_relu1", "p4_relu1", "logit"]
-        num_proto = [10, 10, 10, 200]
-        model = ReconstructModel(backbone, input_dims, num_proto, act_names).cuda()
-        backbone.layer4[1].conv1.register_forward_hook(model.get_activation('p4_relu1'))
-        backbone.fc.register_forward_hook(model.get_activation('logit'))
+        if prototype_layer_name:
+            input_dims = [prototype_channels]
+            act_names = [prototype_layer_name]
+            num_proto = [prototype_count]
+
+        else:
+            input_dims = [128, 256, 512, 512, 200]
+            act_names = ["p2_relu1", "p3_relu1", "p4_relu1", "avgpool", "logit"]
+            num_proto = [25, 25, 25, 25, 100]
+        model = ReconstructModel(backbone, input_dims, num_proto, act_names, spatial_avg_features).cuda()
+        if prototype_layer_name:
+            get_resnet_layer(backbone, prototype_layer_name).register_forward_hook(model.get_activation(prototype_layer_name))
+        else:
+            backbone.layer2[1].conv1.register_forward_hook(model.get_activation('p2_relu1'))
+            backbone.layer3[1].conv1.register_forward_hook(model.get_activation('p3_relu1'))
+            backbone.layer4[1].conv1.register_forward_hook(model.get_activation('p4_relu1'))
+            backbone.avgpool.register_forward_hook(model.get_activation('avgpool'))
+            backbone.fc.register_forward_hook(model.get_activation('logit'))
 
         test_transform = tt.Compose([ToRGB(), tt.Resize((224, 224)), tt.ToTensor(), tt.Normalize(mean, std)])
         id_train_dataset = ImageDatasetFromFile(
@@ -203,7 +265,7 @@ def main(
                 is_imagenet=True
             )
         batch_size = 32
-        augment_resize_vals = [224-56*2, 224-56, 224+56, 224+56*2]
+        augment_resize_vals = [224-56*2, 224-56, 224+56, 224+56*2, 224+56*3]
 
         evaluate_transform = tt.Compose([
             ToRGB(),
@@ -216,6 +278,7 @@ def main(
             transforms = [
                 ToRGB(),
                 tt.CenterCrop(224),
+                tt.Resize((224, 224)),
                 tt.ToTensor(),
                 tt.Normalize(mean, std)
             ]
@@ -239,14 +302,13 @@ def main(
         batch_size=batch_size,
         shuffle=True
     )
-    # %%
+
     logger = TensorBoardLogger(save_dir="training_logs")
     trainer = pl.Trainer(max_epochs=3, logger=logger, accumulate_grad_batches=1, precision=32, log_every_n_steps=5)
     backbone.eval()
     trainer.fit(model, id_train_loader)
     model.eval(); model.cuda();
 
-    # %%
     X_id = model.prototype_scores_loader(id_train_loader)
 
     # Get the ood training data
@@ -264,11 +326,14 @@ def main(
     if resize_augmentation:
         for resize in augment_resize_vals:                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
             print(f"Resize: {resize}")
-            ood_training_loader = get_ood_training_dataset(resize=resize)
-            X_ood_aug  = model.prototype_scores_loader(ood_training_loader)
+            ood_training_dataset = get_ood_training_dataset(resize=resize)
+            ood_train_loader = torch.utils.data.DataLoader(
+                ood_training_dataset,
+                batch_size=batch_size,
+                shuffle=True
+            )
+            X_ood_aug  = model.prototype_scores_loader(ood_train_loader)
             X_ood = np.concatenate([X_ood, X_ood_aug], axis=0)
-
-    # %%
 
     # Gather the data for OOD classifer training
     y_ood = np.zeros(len(X_ood), dtype=np.int32)
@@ -292,10 +357,9 @@ def main(
     scaler = StandardScaler()
     X_train = scaler.fit_transform(X_train)
     X_test = scaler.transform(X_test)
-    # %%
 
     # Train the OOD classifier
-    ood_classifer = MLP(input_size=X_train.shape[1]).cuda()
+    ood_classifer = MLP(input_size=X_train.shape[1], hidden_size=250).cuda()
     ood_classifer_dataset = OODClassiferDataset(X_train, y_arr)
     ood_classifer_loader = torch.utils.data.DataLoader(
         ood_classifer_dataset,
@@ -308,8 +372,6 @@ def main(
     trainer = pl.Trainer(max_epochs=2, logger=logger, accumulate_grad_batches=1, precision=32, log_every_n_steps=5)
     trainer.fit(ood_classifer, ood_classifer_loader)
     ood_classifer.eval(); ood_classifer.cuda();
-
-    # %%
 
     # Make predictions on the test set
     with torch.no_grad():
@@ -341,7 +403,17 @@ def main(
         preprocessor=evaluate_transform, postprocessor=PrototypePostprocessor(None, scaler, ood_classifer), batch_size=batch_size)
     metrics = evaluator.eval_ood()
 
-    # %%
+    metrics = pd.DataFrame(metrics)
+    metrics_dir = osp.join(project_dir, "metrics")
+    if not osp.exists(metrics_dir):
+        os.mkdir(metrics_dir)
 
+    # Save metrics
+    metrics_filename = f"{id_dataset}_s-{i_seed}_resize-{resize_augmentation}_oodsize-{ood_train_size if ood_train_size else 'all'}_avg-{spatial_avg_features}"
+    if prototype_layer_name:
+        metrics_filename = metrics_filename + f"_protlayer-{prototype_layer_name}_protch-{prototype_channels}_nprot-{prototype_count}"
+    metrics.to_csv(osp.join(metrics_dir, metrics_filename + ".csv"))
+
+# %%
 if __name__ == '__main__':
     fire.Fire(main)
