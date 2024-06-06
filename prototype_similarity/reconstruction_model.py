@@ -38,7 +38,7 @@ class ReconstructModel(pl.LightningModule):
             if output.shape[-2] > 4:
                 kernel_size = int(output.shape[-2] / 4)
                 output = F.max_pool2d(output, kernel_size)
-            #output[output < 0] = 0
+
             self.activations[name] = output
         return hook
 
@@ -52,16 +52,9 @@ class ReconstructModel(pl.LightningModule):
         
         for act, prot in zip(acts, prots):
             h, w = act.shape[-2:]
-            # if h > 4:
-            #     kernel_size = int(h / 4)
-            #     act = F.max_pool2d(act, kernel_size)
             batch_tokens = act.flatten(start_dim=2).unsqueeze(-1) # batch_size, n_features, h*w, 1
-            #print(batch_tokens.shape)
-
-            #emb_size, n_prot = model.prototype_matcher.prototype_bank.shape
             similarities_cos = (F.normalize(batch_tokens, dim=1) * F.normalize(prot, dim=1)).sum(dim=1) # batch_size, h*w, n_prot
-            similarities = torch.square(batch_tokens - prot).mean(dim=1)#.mean(dim=-2)
-            #similarities = torch.mean(torch.mean(similarities, dim=1), dim=1) # batch_size
+            similarities = torch.square(batch_tokens - prot).mean(dim=1)
             
             if self.spatial_avg_features:
                 similarities = similarities.mean(dim=1)
