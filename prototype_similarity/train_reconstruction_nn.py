@@ -82,14 +82,15 @@ def get_resnet_layer(model, layer_name):
         spatial_avg_features=False"""
 
 def main(
-        id_dataset="imagenet200",
+        id_dataset="cifar10",
         i_seed=0,
         resize_augmentation=False,
         ood_train_size=None, # None: Use all available data
         prototype_layer_name=None, # None: Use default prototypes
         prototype_channels=10,
         prototype_count=10,
-        spatial_avg_features=False
+        spatial_avg_features=False,
+        fsood=False
         ):
     assert id_dataset in [DATASET_CIFAR10, DATASET_CIFAR100, DATASET_IMAGENET200]
     mean, std = normalization_dict[id_dataset]
@@ -244,9 +245,9 @@ def main(
             num_proto = [prototype_count]
 
         else:
-            input_dims = [128, 256, 512, 512, 200]
-            act_names = ["p2_relu1", "p3_relu1", "p4_relu1", "avgpool", "logit"]
-            num_proto = [25, 25, 25, 25, 100]
+            input_dims = [256, 512, 200]
+            act_names = ["p3_relu1", "p4_relu1", "logit"]
+            num_proto = [10, 25, 50]
         model = ReconstructModel(backbone, input_dims, num_proto, act_names, spatial_avg_features).cuda()
         if prototype_layer_name:
             get_resnet_layer(backbone, prototype_layer_name).register_forward_hook(model.get_activation(prototype_layer_name))
@@ -401,7 +402,7 @@ def main(
     # Initialize an evaluator and evaluate
     evaluator = Evaluator(model, id_name=id_dataset,
         preprocessor=evaluate_transform, postprocessor=PrototypePostprocessor(None, scaler, ood_classifer), batch_size=batch_size)
-    metrics = evaluator.eval_ood()
+    metrics = evaluator.eval_ood(fsood=fsood)
 
     metrics = pd.DataFrame(metrics)
     metrics_dir = osp.join(project_dir, "metrics")
@@ -410,6 +411,8 @@ def main(
 
     # Save metrics
     metrics_filename = f"{id_dataset}_s-{i_seed}_resize-{resize_augmentation}_oodsize-{ood_train_size if ood_train_size else 'all'}_avg-{spatial_avg_features}"
+    if fsood:
+        metrics_filename = metrics_filename + "_fsood"
     if prototype_layer_name:
         metrics_filename = metrics_filename + f"_protlayer-{prototype_layer_name}_protch-{prototype_channels}_nprot-{prototype_count}"
     metrics.to_csv(osp.join(metrics_dir, metrics_filename + ".csv"))
