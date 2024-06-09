@@ -10,7 +10,7 @@ class PrototypeMatchingModel(nn.Module):
         #prot_init[prot_init < 0] = 0
         self.prototype_bank = nn.Parameter(prot_init, requires_grad=True) # *0.01 # .abs()
         self.input_dim = input_dim
-        self.prototype_usage_counts = torch.zeros(num_prototypes, dtype=torch.int32).cuda()
+        self.prototype_usage_counts = None#torch.zeros(num_prototypes, dtype=torch.int32).cuda()
     
     def forward(self, x):
         batch_size, channels, height, width = x.size()
@@ -32,8 +32,10 @@ class PrototypeMatchingModel(nn.Module):
         # Find index of closest prototype for each position
         _, indices = torch.max(similarities, dim=2) # batch_size, h*w
         #_, indices = torch.min(similarities, dim=2) # batch_size, h*w
-        indices_flat = indices.flatten()
-        self.prototype_usage_counts.scatter_add_(0, indices_flat, torch.ones_like(indices_flat, dtype=torch.int32).cuda())
+        #indices_flat = indices.flatten()
+        if self.prototype_usage_counts is None:
+            self.prototype_usage_counts = torch.zeros((self.num_prototypes, height * width), dtype=torch.int32).cuda()
+        self.prototype_usage_counts.scatter_add_(0, indices, torch.ones_like(indices, dtype=torch.int32).cuda())
 
         # Replace each position with its closest prototype
         reconstructed = torch.index_select(self.prototype_bank, 0, indices.view(-1))

@@ -13,6 +13,7 @@ import pytorch_lightning as pl
 from torch import nn
 import numpy as np
 from typing import List
+import math
 
 from prototype_matching_model import PrototypeMatchingModel
 
@@ -27,6 +28,10 @@ class ReconstructModel(pl.LightningModule):
         ])
         self.act_names = act_names
         self.backbone = backbone
+        self.backbone.eval()
+        for param in self.backbone.parameters():
+            param.requires_grad = False
+            
         self.spatial_avg_features = spatial_avg_features
         self.activations = {}
 
@@ -35,9 +40,11 @@ class ReconstructModel(pl.LightningModule):
             output = output.detach()
             if len(output.shape) == 2:
                 output = output.unsqueeze(-1).unsqueeze(-1)
+
             if output.shape[-2] > 4:
-                kernel_size = int(output.shape[-2] / 4)
-                output = F.max_pool2d(output, kernel_size)
+                kernel_size = math.floor(output.shape[-2] / 4)
+                if kernel_size > 1:
+                    output = F.avg_pool2d(output, kernel_size)
 
             self.activations[name] = output
         return hook
@@ -62,10 +69,10 @@ class ReconstructModel(pl.LightningModule):
             else:
                 similarities = similarities.flatten(start_dim=-2)#.mean(dim=1)
                 similarities_cos = similarities_cos.flatten(start_dim=-2)#.max(dim=1).values
-            layer_scores.append(similarities.cpu().numpy())
-            layer_scores.append(similarities_cos.cpu().numpy())
+            layer_scores.append(similarities)
+            layer_scores.append(similarities_cos)
 
-        layer_scores = np.concatenate(layer_scores, axis=-1)
+        layer_scores = torch.cat(layer_scores, dim=-1)
         return layer_scores
     
     def prototype_scores_loader(self, loader):

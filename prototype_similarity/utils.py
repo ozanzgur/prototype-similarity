@@ -17,10 +17,10 @@ class ToRGB:
         return img.convert('RGB')
 
 class PrototypePostprocessor(BasePostprocessor):
-    def __init__(self, config, scaler, ood_classifer):
+    def __init__(self, config, ood_classifier):
         super(PrototypePostprocessor, self).__init__(config)
-        self.scaler = scaler
-        self.ood_classifer = ood_classifer
+        #self.scaler = scaler
+        self.ood_classifier = ood_classifier
         self.APS_mode = False # hparam search
 
     def setup(self, net: nn.Module, id_loader_dict, ood_loader_dict):
@@ -28,12 +28,9 @@ class PrototypePostprocessor(BasePostprocessor):
 
     @torch.no_grad()
     def postprocess(self, reconstruction_model, data):
-        features = reconstruction_model.prototype_scores(data.cuda())
-        features = self.scaler.transform(features)
-        features = torch.tensor(features).cuda()
-        y_pred = self.ood_classifer(features).cpu()
-        pred = y_pred[:, 1] > 0.5
-        conf = y_pred[:, 1]
+        y_pred = self.ood_classifier(data.cuda()).cpu()
+        pred = y_pred > 0.5
+        conf = y_pred
         return pred, conf
 
 
@@ -85,3 +82,27 @@ class ImageDatasetFromFile(torch.utils.data.Dataset):
             image = self.transform(image)
 
         return image, label
+    
+class MergedDataset(torch.utils.data.Dataset):
+    def __init__(self, dataset1, dataset2):
+        self.dataset1 = dataset1
+        self.dataset2 = dataset2
+        self.length1 = len(self.dataset1)
+        self.length2 = len(self.dataset2)
+        self.total_length = self.length1 + self.length2
+    
+    def __len__(self):
+        return self.total_length
+    
+    def __getitem__(self, index):
+        if index < self.length1:
+            # Fetch from the first dataset and assign label 1
+            data = self.dataset1[index][0]
+            label = torch.tensor([0], dtype=torch.float32)
+
+        else:
+            # Fetch from the second dataset and assign label 0
+            data = self.dataset2[index - self.length1][0]
+            label = torch.tensor([1], dtype=torch.float32)
+
+        return data, label
