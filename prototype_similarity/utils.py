@@ -58,7 +58,7 @@ class ImageDatasetFromFile(torch.utils.data.Dataset):
                     filename, label = parts
                     if is_imagenet:
                         filename = self.imgnet_format_convert(filename)
-                    #if "/tin/test" in filename:
+                    
                     if osp.exists(osp.join(self.img_dir, filename)):
                         self.image_labels.append((filename, int(label)))
                 else:

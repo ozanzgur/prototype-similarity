@@ -44,7 +44,6 @@ class MLP(pl.LightningModule):
         return out
     
     def training_step(self, train_batch, batch_idx):
-        #opt_reg = self.optimizers()
         x, y = train_batch
         
         y_pred = self.forward(x)

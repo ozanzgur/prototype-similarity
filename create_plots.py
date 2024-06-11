@@ -5,8 +5,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 plt.rcParams.update({'font.size': 10, 'font.family': 'serif'})
 
-#TODO: Prototype sayılarını experimentsa ekle
-
 # Plot OOD train size vs metric plot
 fn_template = "{id_dataset}_s-0_augment-True_oodsize-{data_size}_avg-False_dr-0.8_mlpsize-250_trn_prot-True.csv"
 
@@ -83,7 +81,7 @@ plt.rcParams.update({'font.size': 10, 'font.family': 'serif'})
 
 id_dataset = "cifar100"
 layer_names = []
-layer_i_to_fn = [] #cifar100_s-0_augment-True_oodsize-all_avg-False_dr-0.8_mlpsize-250_trn_prot-True_protlayer-0_0_conv2_protch-64_nprot-100
+layer_i_to_fn = []
 layer_i_to_fn.append(f"{id_dataset}_s-0_augment-True_oodsize-all_avg-False_dr-0.8_mlpsize-250_trn_prot-True_protlayer-conv1_protch-64_nprot-100.csv")
 layer_i_to_fn.append(f"{id_dataset}_s-0_augment-True_oodsize-all_avg-False_dr-0.8_mlpsize-250_trn_prot-True_protlayer-bn1_protch-64_nprot-100.csv")
 layer_names.extend(["Conv1", "Bn1"])

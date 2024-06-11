@@ -3,9 +3,6 @@ import torch
 import numpy as np
 import torchvision.transforms as tt
 import random
-from pathlib import Path
-import torch.nn.functional as F
-from tqdm import tqdm
 import os.path as osp
 import os
 import pytorch_lightning as pl
@@ -15,9 +12,6 @@ from pytorch_lightning.loggers import TensorBoardLogger
 import numpy as np
 import fire
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score
-from sklearn.metrics import roc_auc_score
 from openood.evaluation_api import Evaluator
 from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning.callbacks import ModelCheckpoint
@@ -26,7 +20,7 @@ from utils import PrototypePostprocessor, subsample_dataset, MergedDataset, plot
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
-from mlp import MLP, OODClassiferDataset
+from mlp import MLP
 from utils import ImageDatasetFromFile, ToRGB
 from reconstruction_model import ReconstructModel
 

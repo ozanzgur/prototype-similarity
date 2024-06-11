@@ -22,7 +22,6 @@ class CustomBatchNorm2D(nn.Module):
             #print(x_flat.shape)
             batch_covariance = torch.einsum('ijk,iab->ja', x_flat, x_flat) / (x_flat.size(-1))
             
-            #print(batch_covariance.shape)
             # Update running statistics
             self.running_mean.mul_(self.momentum).add_(batch_mean.squeeze() * (1 - self.momentum))
             self.running_covariance.mul_(self.momentum).add_(batch_covariance.mean(dim=0) * (1 - self.momentum))
@@ -30,9 +29,6 @@ class CustomBatchNorm2D(nn.Module):
             
             batch_mean = self.running_mean
             batch_covariance = self.running_covariance
-            #batch_covariance = torch.clamp(batch_covariance, min=self.eps)
-            #print(batch_covariance)
-            #print(batch_mean)
         
         # Normalize
         x_normalized = (x - batch_mean.view(1, -1, 1, 1)) * torch.abs(torch.diag(batch_covariance)).view(1, -1, 1, 1) # / torch.sqrt( + self.eps)
@@ -46,7 +42,7 @@ class PrototypeMatchingModel(nn.Module):
         super(PrototypeMatchingModel, self).__init__()
         self.num_prototypes = num_prototypes
         prot_init = torch.randn(num_prototypes, input_dim)
-        #prot_init[prot_init < 0] = 0
+
         self.prototype_bank = nn.Parameter(prot_init, requires_grad=True) # *0.01 # .abs()
         self.input_dim = input_dim
         self.prototype_usage_counts = None
@@ -64,12 +60,9 @@ class PrototypeMatchingModel(nn.Module):
         x = x.unsqueeze(3) #.transpose(1, 2) # batch_size, n_ch, h*w, 1
         prototypes_normalized = prototypes_normalized.t().unsqueeze(0).unsqueeze(2) # 1, n_ch, 1, n_proto
         similarities = (x * prototypes_normalized).sum(dim=1) # batch_size, h*w, n_proto
-        #similarities = torch.sqrt(torch.square(x - prototypes_normalized).sum(dim=1)) # batch_size, h*w, n_proto
 
         # Find index of closest prototype for each position
         _, indices = torch.max(similarities, dim=2) # batch_size, h*w
-        #_, indices = torch.min(similarities, dim=2) # batch_size, h*w
-        #indices_flat = indices.flatten()
         if self.prototype_usage_counts is None:
             self.prototype_usage_counts = torch.zeros((self.num_prototypes, height * width), dtype=torch.int32).cuda()
         self.prototype_usage_counts.scatter_add_(0, indices, torch.ones_like(indices, dtype=torch.int32).cuda())
@@ -91,4 +84,3 @@ class PrototypeMatchingModel(nn.Module):
 
         with torch.no_grad():
             self.prototype_bank.copy_(bank_detach)
-            #self.prototype_bank.grad.data.zero_()
