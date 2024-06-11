@@ -49,23 +49,18 @@ class PrototypeMatchingModel(nn.Module):
         #prot_init[prot_init < 0] = 0
         self.prototype_bank = nn.Parameter(prot_init, requires_grad=True) # *0.01 # .abs()
         self.input_dim = input_dim
-        self.prototype_usage_counts = None#torch.zeros(num_prototypes, dtype=torch.int32).cuda()
-        #self.mahalanobis_bn = CustomBatchNorm2D(input_dim)
+        self.prototype_usage_counts = None
     
     def forward(self, x):
         batch_size, channels, height, width = x.size()
-        #print(x.shape)
-        #x = self.mahalanobis_bn(x)
+
         x = x.view(batch_size, channels, -1)  # Reshape to 2D for easier computation
 
         # Normalize input and prototypes
         x = F.normalize(x, p=2, dim=1) # TODO: try without norm
         prototypes_normalized = F.normalize(self.prototype_bank, p=2, dim=1)
-        #prototypes_normalized = self.prototype_bank
 
         # Calculate cosine similarity
-        #x = x.unsqueeze(2)  # Add singleton dimension for broadcasting
-        # 
         x = x.unsqueeze(3) #.transpose(1, 2) # batch_size, n_ch, h*w, 1
         prototypes_normalized = prototypes_normalized.t().unsqueeze(0).unsqueeze(2) # 1, n_ch, 1, n_proto
         similarities = (x * prototypes_normalized).sum(dim=1) # batch_size, h*w, n_proto
@@ -81,9 +76,6 @@ class PrototypeMatchingModel(nn.Module):
 
         # Replace each position with its closest prototype
         reconstructed = torch.index_select(self.prototype_bank, 0, indices.view(-1))
-        #reconstructed = reconstructed.view(batch_size, channels, height, width)
-        #reconstructed = reconstructed.reshape(batch_size, height, width, channels).permute(0, 3, 1, 2)
-        #reconstructed, indices = replace_with_weighted_average(self.prototype_bank, similarities, k=5)
         reconstructed = reconstructed.view(batch_size, channels, height, width)
         reconstructed = reconstructed.reshape(batch_size, height, width, channels).permute(0, 3, 1, 2)
         return reconstructed, indices

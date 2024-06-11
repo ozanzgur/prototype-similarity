@@ -105,10 +105,8 @@ class ReconstructModel(pl.LightningModule):
 
         layer_scores = []
         prots = [matcher.prototype_bank.T.unsqueeze(0).unsqueeze(2) for matcher in self.prototype_matchers]
-        #normalizers = [matcher.mahalanobis_bn for matcher in self.prototype_matchers]
         
         for act, prot in zip(acts, prots):
-            #act = bn(act)
             h, w = act.shape[-2:]
             batch_tokens = act.flatten(start_dim=2).unsqueeze(-1) # batch_size, n_features, h*w, 1
             similarities_cos = (F.normalize(batch_tokens, dim=1) * F.normalize(prot, dim=1)).sum(dim=1) # batch_size, h*w, n_prot

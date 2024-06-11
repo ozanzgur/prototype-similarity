@@ -51,19 +51,13 @@ class MLP(pl.LightningModule):
         train_loss_mlp = self.loss(y_pred, y)
         self.log('train_loss_mlp', train_loss_mlp)
 
-        #opt_reg.zero_grad()
-        #self.manual_backward(train_loss_mlp)
-        #opt_reg.step()
         return train_loss_mlp
     
     def validation_step(self, batch, batch_idx):
         x, y = batch
         logits = self.forward(x)
         loss = self.loss(logits, y)
-        #preds = torch.argmax(logits, dim=1)
-        #acc = (preds == y).float().mean()
         self.log('val_loss', loss, prog_bar=True)
-        #self.log('val_acc', acc, prog_bar=True)
         return loss
     
     def configure_optimizers(self):

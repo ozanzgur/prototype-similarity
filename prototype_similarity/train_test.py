@@ -45,6 +45,7 @@ DATASET_IMAGENET200 = "imagenet200"
 DATASET_IMAGENET = "imagenet"
 default_id_dataset = DATASET_CIFAR10
 default_prot_train_epochs = 3
+default_reconstruct_output_act_size = 4
 
 normalization_dict = {
     'cifar10': [[0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616]],
@@ -89,7 +90,7 @@ def main(
     mlp_lr=1e-3,
     fsood=False,
     do_plot_prot_usage=False, # Heatmap of prototype usage counts in reconstruction during training
-    reconstruct_output_act_size=4,
+    reconstruct_output_act_size=default_reconstruct_output_act_size,
     is_conv_method=False,
     prot_train_epochs=default_prot_train_epochs
     ):
@@ -425,6 +426,10 @@ def main(
         metrics_filename = metrics_filename + "_conv1x1"
     if prot_train_epochs != default_prot_train_epochs:
         metrics_filename = metrics_filename + f"_prot-ep-{prot_train_epochs}"
+
+    if reconstruct_output_act_size != default_reconstruct_output_act_size:
+        metrics_filename = metrics_filename + f"_act-size-{reconstruct_output_act_size}"
+
 
     early_stop_callback = EarlyStopping(
         monitor='val_loss',
