@@ -1,6 +1,45 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F 
+import torch.nn.functional as F
+
+class CustomBatchNorm2D(nn.Module):
+    def __init__(self, num_features, eps=1e-5, momentum=0.9):
+        super(CustomBatchNorm2D, self).__init__()
+        self.num_features = num_features
+        self.eps = eps
+        self.momentum = momentum
+        self.register_buffer('running_mean', torch.zeros(num_features))
+        self.register_buffer('running_covariance', torch.zeros(num_features, num_features))
+        self.gamma = nn.Parameter(torch.ones(num_features))
+        self.beta = nn.Parameter(torch.zeros(num_features))
+        
+    def forward(self, x):
+        if self.training:
+            # Compute batch statistics per channel
+            batch_mean = x.mean(dim=[0, 2, 3], keepdim=True)  # shape: (1, num_features, 1, 1)
+            x_centered = x - batch_mean  # shape: (batch_size, num_features, height, width)
+            x_flat = x_centered.view(x_centered.size(0), x_centered.size(1), -1)  # shape: (batch_size, num_features, height * width)
+            #print(x_flat.shape)
+            batch_covariance = torch.einsum('ijk,iab->ja', x_flat, x_flat) / (x_flat.size(-1))
+            
+            #print(batch_covariance.shape)
+            # Update running statistics
+            self.running_mean.mul_(self.momentum).add_(batch_mean.squeeze() * (1 - self.momentum))
+            self.running_covariance.mul_(self.momentum).add_(batch_covariance.mean(dim=0) * (1 - self.momentum))
+        else:
+            
+            batch_mean = self.running_mean
+            batch_covariance = self.running_covariance
+            #batch_covariance = torch.clamp(batch_covariance, min=self.eps)
+            #print(batch_covariance)
+            #print(batch_mean)
+        
+        # Normalize
+        x_normalized = (x - batch_mean.view(1, -1, 1, 1)) * torch.abs(torch.diag(batch_covariance)).view(1, -1, 1, 1) # / torch.sqrt( + self.eps)
+        
+        # Scale and shift
+        out = self.gamma.view(1, -1, 1, 1) * x_normalized + self.beta.view(1, -1, 1, 1)
+        return out
 
 class PrototypeMatchingModel(nn.Module):
     def __init__(self, input_dim, num_prototypes):
@@ -11,9 +50,12 @@ class PrototypeMatchingModel(nn.Module):
         self.prototype_bank = nn.Parameter(prot_init, requires_grad=True) # *0.01 # .abs()
         self.input_dim = input_dim
         self.prototype_usage_counts = None#torch.zeros(num_prototypes, dtype=torch.int32).cuda()
+        #self.mahalanobis_bn = CustomBatchNorm2D(input_dim)
     
     def forward(self, x):
         batch_size, channels, height, width = x.size()
+        #print(x.shape)
+        #x = self.mahalanobis_bn(x)
         x = x.view(batch_size, channels, -1)  # Reshape to 2D for easier computation
 
         # Normalize input and prototypes

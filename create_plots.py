@@ -62,7 +62,7 @@ ax2.plot(near_fpr95_cifar100, linewidth=2, marker='o', markersize=5)
 ax2.plot(far_fpr95_cifar100, linewidth=2, marker='o', markersize=5)
 
 ax2.set_xlabel("Number of Examples", fontsize=10)
-ax2.set_ylabel("AUROC", fontsize=10)
+ax2.set_ylabel("FPR95", fontsize=10)
 ax2.grid(True, linestyle='--', linewidth=0.5)
 ax2.set_xticks(np.arange(len(data_sizes)), data_sizes, rotation=0, fontsize=12)
 ax2.legend(["Near-OOD, ID=CIFAR10 ", "Far-OOD, ID=CIFAR10", "Near-OOD, ID=CIFAR100 ", "Far-OOD, ID=CIFAR100"], fontsize=10)
@@ -82,27 +82,27 @@ import numpy as np
 import matplotlib.pyplot as plt
 plt.rcParams.update({'font.size': 10, 'font.family': 'serif'})
 
-id_dataset = "cifar10"
+id_dataset = "cifar100"
 layer_names = []
-layer_i_to_fn = []
-layer_i_to_fn.append(f"{id_dataset}_s-0_resize-True_oodsize-all_avg-False_protlayer-conv1_protch-64_nprot-100.csv")
-layer_i_to_fn.append(f"{id_dataset}_s-0_resize-True_oodsize-all_avg-False_protlayer-bn1_protch-64_nprot-100.csv")
+layer_i_to_fn = [] #cifar100_s-0_augment-True_oodsize-all_avg-False_dr-0.8_mlpsize-250_trn_prot-True_protlayer-0_0_conv2_protch-64_nprot-100
+layer_i_to_fn.append(f"{id_dataset}_s-0_augment-True_oodsize-all_avg-False_dr-0.8_mlpsize-250_trn_prot-True_protlayer-conv1_protch-64_nprot-100.csv")
+layer_i_to_fn.append(f"{id_dataset}_s-0_augment-True_oodsize-all_avg-False_dr-0.8_mlpsize-250_trn_prot-True_protlayer-bn1_protch-64_nprot-100.csv")
 layer_names.extend(["Conv1", "Bn1"])
 
 for i_block in range(4):
     n_ch = 64 * 2**(i_block)
     for i_part in range(2):
-        layer_i_to_fn.append(f"{id_dataset}_s-0_resize-True_oodsize-all_avg-False_protlayer-{i_block}_{i_part}_conv1_protch-{n_ch}_nprot-100.csv")
-        layer_i_to_fn.append(f"{id_dataset}_s-0_resize-True_oodsize-all_avg-False_protlayer-{i_block}_{i_part}_bn1_protch-{n_ch}_nprot-100.csv")
-        layer_i_to_fn.append(f"{id_dataset}_s-0_resize-True_oodsize-all_avg-False_protlayer-{i_block}_{i_part}_conv2_protch-{n_ch}_nprot-100.csv")
-        layer_i_to_fn.append(f"{id_dataset}_s-0_resize-True_oodsize-all_avg-False_protlayer-{i_block}_{i_part}_bn2_protch-{n_ch}_nprot-100.csv")
+        layer_i_to_fn.append(f"{id_dataset}_s-0_augment-True_oodsize-all_avg-False_dr-0.8_mlpsize-250_trn_prot-True_protlayer-{i_block}_{i_part}_conv1_protch-{n_ch}_nprot-100.csv")
+        layer_i_to_fn.append(f"{id_dataset}_s-0_augment-True_oodsize-all_avg-False_dr-0.8_mlpsize-250_trn_prot-True_protlayer-{i_block}_{i_part}_bn1_protch-{n_ch}_nprot-100.csv")
+        layer_i_to_fn.append(f"{id_dataset}_s-0_augment-True_oodsize-all_avg-False_dr-0.8_mlpsize-250_trn_prot-True_protlayer-{i_block}_{i_part}_conv2_protch-{n_ch}_nprot-100.csv")
+        layer_i_to_fn.append(f"{id_dataset}_s-0_augment-True_oodsize-all_avg-False_dr-0.8_mlpsize-250_trn_prot-True_protlayer-{i_block}_{i_part}_bn2_protch-{n_ch}_nprot-100.csv")
         layer_names.append(f"Block{i_block} Part{i_part} Conv1")
         layer_names.append(f"Block{i_block} Part{i_part} BN1")
         layer_names.append(f"Block{i_block} Part{i_part} Conv2")
         layer_names.append(f"Block{i_block} Part{i_part} BN2")
 
-layer_i_to_fn.append(f"{id_dataset}_s-0_resize-True_oodsize-all_avg-False_protlayer-penultimate_protch-512_nprot-100.csv")
-layer_i_to_fn.append(f"{id_dataset}_s-0_resize-True_oodsize-all_avg-False_protlayer-fc_protch-10_nprot-100.csv")
+layer_i_to_fn.append(f"{id_dataset}_s-0_augment-True_oodsize-all_avg-False_dr-0.8_mlpsize-250_trn_prot-True_protlayer-penultimate_protch-512_nprot-100.csv")
+layer_i_to_fn.append(f"{id_dataset}_s-0_augment-True_oodsize-all_avg-False_dr-0.8_mlpsize-250_trn_prot-True_protlayer-fc_protch-100_nprot-100.csv")
 layer_names.append("Penultimate")  
 layer_names.append("FC - Logit Layer")
 
@@ -117,7 +117,7 @@ for fn in layer_i_to_fn:
     far_auroc.append(metrics.loc[metrics.index=="farood", "AUROC"].iloc[0])
 
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(20, 10), dpi=300)
-ax1.set_title("AUROC - OOD Classification Using a Single Layer", fontsize=12)
+ax1.set_title("AUROC - OOD Classification Using a Single Layer - ID Dataset: CIFAR100", fontsize=12)
 ax1.plot(near_auroc, linewidth=2, marker='o', markersize=5)
 ax1.plot(far_auroc, linewidth=2, marker='o', markersize=5)
 ax1.set_xlabel("Layer Name", fontsize=10)
@@ -128,7 +128,7 @@ ax1.legend(["Near-OOD Datasets", "Far-OOD Datasets"], fontsize=10)
 ax1.spines['top'].set_visible(False)
 ax1.spines['right'].set_visible(False)
 
-multilayer_auroc = 94.07
+multilayer_auroc = 79.38
 ax1.axhline(y=multilayer_auroc, color='b', linestyle='--', linewidth=1)
 ax1.annotate(f'Multiple Layers Near-OOD AUROC: {multilayer_auroc}', 
              xy=(0, multilayer_auroc),
@@ -136,7 +136,7 @@ ax1.annotate(f'Multiple Layers Near-OOD AUROC: {multilayer_auroc}',
              arrowprops=dict(facecolor='blue', shrink=0.05),
              fontsize=10, color='black')
 
-multilayer_auroc = 98.07
+multilayer_auroc = 89.81
 ax1.axhline(y=multilayer_auroc, color='orange', linestyle='--', linewidth=1)
 ax1.annotate(f'Multiple Layers Far-OOD AUROC: {multilayer_auroc}', 
              xy=(0, multilayer_auroc), 
@@ -144,7 +144,7 @@ ax1.annotate(f'Multiple Layers Far-OOD AUROC: {multilayer_auroc}',
              arrowprops=dict(facecolor='orange', shrink=0.05),
              fontsize=10, color='black')
 
-ax2.set_title("FPR95 - OOD Classification Using a Single Layer", fontsize=12)
+ax2.set_title("FPR95 - OOD Classification Using a Single Layer - ID Dataset: CIFAR100", fontsize=12)
 ax2.plot(near_fpr95, linewidth=2, marker='o', markersize=5)
 ax2.plot(far_fpr95, linewidth=2, marker='o', markersize=5)
 ax2.set_xlabel("Layer Name", fontsize=10)
@@ -155,7 +155,7 @@ ax2.legend(["Near-OOD Datasets", "Far-OOD Datasets"], fontsize=10)
 ax2.spines['top'].set_visible(False)
 ax2.spines['right'].set_visible(False)
 
-multilayer_fpr = 25.11
+multilayer_fpr = 59.61
 ax2.axhline(y=multilayer_fpr, color='b', linestyle='--', linewidth=1)
 ax2.annotate(f'Multiple Layers Near-OOD FPR95: {multilayer_fpr}', 
              xy=(0, multilayer_fpr),
@@ -163,7 +163,7 @@ ax2.annotate(f'Multiple Layers Near-OOD FPR95: {multilayer_fpr}',
              arrowprops=dict(facecolor='blue', shrink=0.05),
              fontsize=10, color='black')
 
-multilayer_fpr = 8.71
+multilayer_fpr = 40.37
 ax2.axhline(y=multilayer_fpr, color='orange', linestyle='--', linewidth=1)
 ax2.annotate(f'Multiple Layers Far-OOD FPR95: {multilayer_fpr}', 
              xy=(0, multilayer_fpr), 

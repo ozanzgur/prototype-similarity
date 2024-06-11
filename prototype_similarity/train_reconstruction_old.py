@@ -79,8 +79,8 @@ class ReconstructModel(pl.LightningModule):
         opt_reg.step()
 
     def configure_optimizers(self):
-        opt_reg = torch.optim.Adam(self.parameters(), lr=3e-2) # , weight_decay=1e-1
-        sch_reg = torch.optim.lr_scheduler.MultiStepLR(opt_reg, [1, 3, 5], gamma=0.1)
+        opt_reg = torch.optim.Adam(self.parameters(), lr=0.1) # , weight_decay=1e-1
+        sch_reg = torch.optim.lr_scheduler.MultiStepLR(opt_reg, [3, 5], gamma=0.1)
         return [opt_reg], [sch_reg] # sch_reg, sch_cls
 
     def on_train_epoch_end(self) -> None:
@@ -94,7 +94,7 @@ activations = {}
 def get_activation(name):
     def hook(model, input, output):
         output = output.detach()
-        output[output < 0] = 0
+        #output[output < 0] = 0
         activations[name] = output
     return hook
 
@@ -113,8 +113,8 @@ def reconstruct_score(model, x):
     #similarities = torch.mean(torch.mean(similarities, dim=1), dim=1) # batch_size
 
     similarities = similarities.mean(dim=1, keepdim=True)
-    similarities_cos = similarities_cos.mean(dim=1, keepdim=True) # TODO: Try mean
-    return similarities, similarities_cos
+    similarities_cos = similarities_cos.max(dim=1, keepdim=True).values # TODO: Try mean
+    return similarities, similarities_cos, similarities.min(dim=1, keepdim=True).values, similarities_cos.max(dim=1, keepdim=True).values
 
 # %%
 
@@ -129,7 +129,8 @@ if ID_DATASET == DATASET_CIFAR10:
     net.eval(); net.cuda();
     model = ReconstructModel(512).cuda()
 
-    net.layer4[0].conv1.register_forward_hook(get_activation('b4_relu1'))
+    #net.layer4[1].conv1.register_forward_hook(get_activation('b4_relu1'))
+    net.layer4[1].conv1.register_forward_hook(get_activation('b4_relu1'))
 
     test_transform = tt.Compose([tt.ToTensor(), tt.Normalize(mean, std)])
     train_dataset = torchvision.datasets.CIFAR10(dataset_path, train=True, transform=test_transform, download=True)
@@ -200,7 +201,7 @@ test_loader = torch.utils.data.DataLoader(
 )
 
 logger = TensorBoardLogger(save_dir="training_logs")
-trainer = pl.Trainer(max_epochs=2, logger=logger, accumulate_grad_batches=1, precision=32, log_every_n_steps=5)
+trainer = pl.Trainer(max_epochs=3, logger=logger, accumulate_grad_batches=1, precision=32, log_every_n_steps=5)
 net.eval()
 trainer.fit(model, train_loader)
 model.eval(); model.cuda();
@@ -210,18 +211,41 @@ model.eval(); model.cuda();
 def score_dataset(net, loader):
     scores = []
     scores_cos = []
+    scores2 = []
+    scores_cos2 = []
     print("Scoring dataset")
     with torch.no_grad():
         for x_batch, _ in tqdm(loader):
-            s, s_cos = reconstruct_score(model, x_batch.cuda())
+            s, s_cos, s2, s_cos2 = reconstruct_score(model, x_batch.cuda())
             scores.append(s.cpu().numpy())
             scores_cos.append(s_cos.cpu().numpy())
+            scores2.append(s2.cpu().numpy())
+            scores_cos2.append(s_cos2.cpu().numpy())
     scores = np.concatenate(scores, axis=0).astype(np.float16)
     scores_cos = np.concatenate(scores_cos, axis=0).astype(np.float16)
-    return scores, scores_cos
+    scores2 = np.concatenate(scores2, axis=0).astype(np.float16)
+    scores_cos2 = np.concatenate(scores_cos2, axis=0).astype(np.float16)
+    return scores, scores_cos, scores2, scores_cos2
 
 #test_id_scores, test_id_scores_cos = score_dataset(net, test_loader)
-train_id_scores, train_id_scores_cos = score_dataset(net, train_loader)
+train_id_scores, train_id_scores_cos, train_id_scores2, train_id_scores_cos2 = score_dataset(net, train_loader)
+
+"""# Augmentation
+for size in [24]:
+    aug_transform = tt.Compose([
+                tt.Resize(size),
+                tt.CenterCrop(32),
+                tt.ToTensor(),
+                tt.Normalize(mean, std)])
+    train_dataset = torchvision.datasets.CIFAR10(dataset_path, train=True, transform=aug_transform, download=False)
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True
+    )
+    train_id_scores_aug, train_id_scores_cos_aug, train_id_scores2_aug, train_id_scores_cos2_aug = score_dataset(net, train_loader)
+    train_id_scores = np.concatenate([train_id_scores, train_id_scores_aug], axis=0)
+    train_id_scores_cos = np.concatenate([train_id_scores_cos, train_id_scores_cos_aug], axis=0)"""
 
 # %%
 import numpy as np
@@ -304,22 +328,29 @@ elif OOD_TRAIN_DATASET == DATASET_CIFAR100:
 # Get the ood training data
 print("Getting the ood training dataset for id classification")
 ood_training_loader = get_ood_training_dataset()
-ood_training_scores, ood_training_scores_cos  = score_dataset(model, ood_training_loader)
+ood_training_scores, ood_training_scores_cos, ood_training_scores2, ood_training_scores_cos2  = score_dataset(model, ood_training_loader)
 
 if OOD_TRAIN_DATASET == DATASET_TINYIMAGENET:
-    for resize in [76, 52, 40, 28]:
+    for resize in [88, 76, 58, 52, 40, 28]:
         print(f"Resize: {resize}")
         ood_training_loader = get_ood_training_dataset(resize=resize)
-        ood_training_scores2, ood_training_scores_cos2  = score_dataset(model, ood_training_loader)
-        ood_training_scores = np.concatenate([ood_training_scores, ood_training_scores2], axis=0)
-        ood_training_scores_cos = np.concatenate([ood_training_scores_cos, ood_training_scores_cos2], axis=0)
+        ood_training_scores_aug, ood_training_scores_cos_aug, ood_training_scores2_aug, ood_training_scores2_cos_aug  = score_dataset(model, ood_training_loader)
+        ood_training_scores = np.concatenate([ood_training_scores, ood_training_scores_aug], axis=0)
+        ood_training_scores_cos = np.concatenate([ood_training_scores_cos, ood_training_scores_cos_aug], axis=0)
+        ood_training_scores2 = np.concatenate([ood_training_scores2, ood_training_scores2_aug], axis=0)
+        ood_training_scores_cos2 = np.concatenate([ood_training_scores_cos2, ood_training_scores2_cos_aug], axis=0)
 
 ood_mean_scores = ood_training_scores.mean(axis=1)
 ood_mean_scores_cos = ood_training_scores_cos.mean(axis=1)
+ood_mean_scores2 = ood_training_scores2.mean(axis=1)
+ood_mean_scores_cos2 = ood_training_scores_cos2.mean(axis=1)
+
 X_ood = np.concatenate([
     ood_mean_scores, 
-    ood_mean_scores_cos,
-    #np.max(ood_mean_scores, axis=1, keepdims=True), 
+    #ood_mean_scores_cos,
+    ood_mean_scores2, 
+    #ood_mean_scores_cos2,
+    np.min(ood_mean_scores2, axis=1, keepdims=True), 
     #np.max(ood_mean_scores_cos, axis=1, keepdims=True),
     #np.mean(ood_mean_scores, axis=1, keepdims=True), 
     #np.mean(ood_mean_scores_cos, axis=1, keepdims=True)
@@ -329,10 +360,14 @@ y_ood = np.zeros(len(X_ood), dtype=np.int32)
 # Get the id training data
 id_mean_scores = train_id_scores.mean(axis=1)
 id_mean_scores_cos = train_id_scores_cos.mean(axis=1)
+id_mean_scores2 = train_id_scores2.mean(axis=1)
+id_mean_scores_cos2 = train_id_scores_cos2.mean(axis=1)
 X_id = np.concatenate([
     id_mean_scores, 
-    id_mean_scores_cos, 
-    #np.max(id_mean_scores, axis=1, keepdims=True), 
+    #id_mean_scores_cos, 
+    id_mean_scores2, 
+    #id_mean_scores_cos2, 
+    np.min(id_mean_scores2, axis=1, keepdims=True), 
     #np.max(id_mean_scores_cos, axis=1, keepdims=True),
     #np.mean(id_mean_scores, axis=1, keepdims=True), 
     #np.mean(id_mean_scores_cos, axis=1, keepdims=True)
@@ -359,7 +394,7 @@ X_test = scaler.transform(X_test)
 # %%
 metamodel = GradientBoostingClassifier(
     random_state=42,
-    n_estimators=500,
+    n_estimators=200,
     learning_rate=3e-2,
     n_iter_no_change=5,
     subsample=0.75,
@@ -396,12 +431,15 @@ class PrototypePostprocessor(BasePostprocessor):
 
     @torch.no_grad()
     def postprocess(self, net, data):
-        s, s_cos = reconstruct_score(model, data.cuda())
+        s, s_cos, s2, s_cos2 = reconstruct_score(model, data.cuda())
         s = s[:, 0].cpu().numpy(); s_cos = s_cos[:, 0].cpu().numpy()
+        s2 = s2[:, 0].cpu().numpy(); s_cos2 = s_cos2[:, 0].cpu().numpy()
         features = np.array(np.concatenate([
             s, 
-            s_cos,
-            #np.max(s, axis=1, keepdims=True), 
+            #s_cos,
+            s2,
+            #s_cos2,
+            np.min(s2, axis=1, keepdims=True), 
             #np.max(s_cos, axis=1, keepdims=True),
             #np.mean(s, axis=1, keepdims=True), 
             #np.mean(s_cos, axis=1, keepdims=True)

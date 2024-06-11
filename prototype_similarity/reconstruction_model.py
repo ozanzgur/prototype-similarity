@@ -17,17 +17,48 @@ import math
 
 from prototype_matching_model import PrototypeMatchingModel
 
+class FeatureExtractor(nn.Module):
+    def __init__(self, n_channels:int, n_features:int, aggregate:bool=False):
+        super(FeatureExtractor, self).__init__()
+        self.aggregate=aggregate
+        self.conv1x1 = nn.Conv2d(n_channels, n_features, kernel_size=1)
+
+    def forward(self, x):
+        # x is expected to be of shape (batch_size, n_channels, h, w)
+        features = self.conv1x1(x)
+        if self.aggregate:
+            features = features.max(dim=-1).values.max(dim=-1).values
+        else:
+            features = features.flatten(start_dim=1)
+        return features
+
 class ReconstructModel(pl.LightningModule):
-    def __init__(self, backbone, input_dims:List[int], num_proto:List[int], act_names:List[str], spatial_avg_features:bool):
+    def __init__(self, 
+            backbone, 
+            input_dims:List[int], 
+            num_proto:List[int], 
+            act_names:List[str], 
+            spatial_avg_features:bool, 
+            output_act_size:int=4,
+            is_conv_method:bool=False
+        ):
         super(ReconstructModel, self).__init__()
         #self.automatic_optimization = False
         self.loss = nn.MSELoss()
+        self.is_conv_method = is_conv_method
 
-        self.prototype_matchers = nn.ModuleList([
-            PrototypeMatchingModel(input_dim=dims, num_prototypes=n_proto) for dims, n_proto in zip(input_dims, num_proto)
-        ])
+        if not is_conv_method:
+            self.prototype_matchers = nn.ModuleList([
+                PrototypeMatchingModel(input_dim=dims, num_prototypes=n_proto) for dims, n_proto in zip(input_dims, num_proto)
+            ])
+        else:
+            self.prototype_matchers = nn.ModuleList([
+                FeatureExtractor(n_channels=dims, n_features=n_proto, aggregate=spatial_avg_features) for dims, n_proto in zip(input_dims, num_proto)
+            ])  
+
         self.act_names = act_names
         self.backbone = backbone
+        self.output_act_size = output_act_size
         self.backbone.eval()
         for param in self.backbone.parameters():
             param.requires_grad = False
@@ -41,23 +72,43 @@ class ReconstructModel(pl.LightningModule):
             if len(output.shape) == 2:
                 output = output.unsqueeze(-1).unsqueeze(-1)
 
-            if output.shape[-2] > 4:
-                kernel_size = math.floor(output.shape[-2] / 4)
+            if output.shape[-2] > self.output_act_size:
+                kernel_size = math.floor(output.shape[-2] / self.output_act_size)
                 if kernel_size > 1:
                     output = F.avg_pool2d(output, kernel_size)
 
             self.activations[name] = output
         return hook
-
+    
     def prototype_scores(self, x):
+        if self.is_conv_method:
+            return self.prototype_scores_conv_method(x)
+        else:
+            return self.prototype_scores_prot_method(x)
+    
+    def prototype_scores_conv_method(self, x):
+        with torch.no_grad():
+            _ = self.backbone(x.cuda())
+        acts = [self.activations[n] for n in self.act_names]
+        layer_scores = []
+
+        for act, scorer in zip(acts, self.prototype_matchers):
+            layer_scores.append(scorer(act))
+
+        layer_scores = torch.cat(layer_scores, dim=-1)
+        return layer_scores
+
+    def prototype_scores_prot_method(self, x):
         with torch.no_grad():
             _ = self.backbone(x.cuda())
         acts = [self.activations[n] for n in self.act_names]
 
         layer_scores = []
         prots = [matcher.prototype_bank.T.unsqueeze(0).unsqueeze(2) for matcher in self.prototype_matchers]
+        #normalizers = [matcher.mahalanobis_bn for matcher in self.prototype_matchers]
         
         for act, prot in zip(acts, prots):
+            #act = bn(act)
             h, w = act.shape[-2:]
             batch_tokens = act.flatten(start_dim=2).unsqueeze(-1) # batch_size, n_features, h*w, 1
             similarities_cos = (F.normalize(batch_tokens, dim=1) * F.normalize(prot, dim=1)).sum(dim=1) # batch_size, h*w, n_prot

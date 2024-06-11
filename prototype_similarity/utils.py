@@ -2,10 +2,16 @@ import torch
 from torch import nn
 import os.path as osp
 from PIL import Image
+from pathlib import Path
 import numpy as np
+import os
+import matplotlib.pyplot as plt
+plt.rcParams.update({'font.size': 10, 'font.family': 'serif'})
 
 from openood.postprocessors import BasePostprocessor
 import openood.utils.comm as comm
+
+project_dir = str(Path(__file__).resolve().parents[1])
 
 def subsample_dataset(dataset, sample_size):
     idx = np.random.permutation(len(dataset))
@@ -106,3 +112,31 @@ class MergedDataset(torch.utils.data.Dataset):
             label = torch.tensor([1], dtype=torch.float32)
 
         return data, label
+    
+def plot_prot_usage(model):
+    print("Saving prototype usage plots")
+    import seaborn as sns
+    prot_usage = model.prototype_matchers[0].prototype_usage_counts.cpu().detach().numpy()
+    total_usage_rates = prot_usage.sum(axis=1)
+    usage_order_idx = np.argsort(total_usage_rates)
+
+    plot_dir = osp.join(project_dir, "plots")
+    if not osp.exists(plot_dir):
+        os.mkdir(plot_dir)
+
+    for prot_order in range(20):
+        plt.figure(figsize=(6, 6), dpi=300)
+        usage_rate = prot_usage[usage_order_idx[-prot_order-1]]
+        h = int(np.sqrt(usage_rate.shape))
+        heatmap = sns.heatmap(usage_rate.reshape(h, h), cmap='viridis', xticklabels=False, yticklabels=False)
+        plt.title(f"Most Used Prototype  {prot_order}\nMatch Count in Spatial Dimensions")
+
+        # Adjust the color bar
+        cbar = heatmap.collections[0].colorbar
+        cbar.set_label('Selection Count for Reconstruction During Training', fontsize=10)
+        # Remove axis ticks
+        heatmap.tick_params(left=False, bottom=False)
+
+        plt.savefig(osp.join(plot_dir, f'prot_usage_top_{prot_order}.png'), dpi=300, bbox_inches='tight')
+        plt.close()
+        
