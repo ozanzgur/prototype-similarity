@@ -1,4 +1,5 @@
-# %%
+""" Run script_ablation.sh to generate the metrics used in this script.
+"""
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -7,8 +8,7 @@ plt.rcParams.update({'font.size': 10, 'font.family': 'serif'})
 #TODO: Prototype sayılarını experimentsa ekle
 
 # Plot OOD train size vs metric plot
-fn_template = "{id_dataset}_s-0_resize-True_oodsize-{data_size}_avg-False.csv"
-id_dataset = "cifar10"
+fn_template = "{id_dataset}_s-0_augment-True_oodsize-{data_size}_avg-False_dr-0.8_mlpsize-250_trn_prot-True.csv"
 
 data_sizes = [10, 30, 100, 300, 1000, 3000, 10000, 30000]
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4), dpi=300)
@@ -17,7 +17,6 @@ near_fpr95_cifar10, near_auroc_cifar10 = [], []
 far_fpr95_cifar10, far_auroc_cifar10 = [], []
 near_fpr95_cifar100, near_auroc_cifar100 = [], []
 far_fpr95_cifar100, far_auroc_cifar100 = [], []
-
 
 # Gather metrics
 id_dataset = "cifar10"
