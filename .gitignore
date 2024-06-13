@@ -15,6 +15,7 @@ prototype_similarity/training_logs
 prototype_similarity/training_logs_metamodel
 training_logs/
 training_logs_metamodel/
+metrics_old/
 
 # Distribution / packaging
 .Python

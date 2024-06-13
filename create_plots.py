@@ -1,3 +1,4 @@
+# %%
 """ Run script_ablation.sh to generate the metrics used in this script.
 """
 import pandas as pd
@@ -113,7 +114,7 @@ for fn in layer_i_to_fn:
     far_fpr95.append(metrics.loc[metrics.index=="farood", "FPR@95"].iloc[0])
     far_auroc.append(metrics.loc[metrics.index=="farood", "AUROC"].iloc[0])
 
-fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(20, 10), dpi=300)
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 8), dpi=300)
 ax1.set_title("AUROC - OOD Classification Using a Single Layer - ID Dataset: CIFAR100", fontsize=12)
 ax1.plot(near_auroc, linewidth=2, marker='o', markersize=5)
 ax1.plot(far_auroc, linewidth=2, marker='o', markersize=5)

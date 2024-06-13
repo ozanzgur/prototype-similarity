@@ -24,3 +24,21 @@ python prototype_similarity/train_test.py --id_dataset imagenet200 --i_seed 2 --
 python prototype_similarity/train_test.py --id_dataset imagenet200 --i_seed 0 --fsood True --ood_train_size 100000 --id_train_size 100000 --reconstruct_output_act_size 12
 python prototype_similarity/train_test.py --id_dataset imagenet200 --i_seed 1 --fsood True --ood_train_size 100000 --id_train_size 100000 --reconstruct_output_act_size 12
 python prototype_similarity/train_test.py --id_dataset imagenet200 --i_seed 2 --fsood True --ood_train_size 100000 --id_train_size 100000 --reconstruct_output_act_size 12
+
+python prototype_similarity/train_test.py --id_dataset cifar10 --i_seed 0 --is_conv_method True
+python prototype_similarity/train_test.py --id_dataset cifar10 --i_seed 1 --is_conv_method True
+python prototype_similarity/train_test.py --id_dataset cifar10 --i_seed 2 --is_conv_method True
+
+python prototype_similarity/train_test.py --id_dataset cifar100 --i_seed 0 --is_conv_method True
+python prototype_similarity/train_test.py --id_dataset cifar100 --i_seed 1 --is_conv_method True
+python prototype_similarity/train_test.py --id_dataset cifar100 --i_seed 2 --is_conv_method True
+
+python prototype_similarity/train_test.py --id_dataset imagenet200 --i_seed 0 --ood_train_size 100000 --id_train_size 100000 --reconstruct_output_act_size 12 --is_conv_method True
+python prototype_similarity/train_test.py --id_dataset imagenet200 --i_seed 1 --ood_train_size 100000 --id_train_size 100000 --reconstruct_output_act_size 12 --is_conv_method True
+python prototype_similarity/train_test.py --id_dataset imagenet200 --i_seed 2 --ood_train_size 100000 --id_train_size 100000 --reconstruct_output_act_size 12 --is_conv_method True
+
+python prototype_similarity/train_test.py --id_dataset imagenet200 --i_seed 0 --fsood True --ood_train_size 100000 --id_train_size 100000 --reconstruct_output_act_size 12 --is_conv_method True
+python prototype_similarity/train_test.py --id_dataset imagenet200 --i_seed 1 --fsood True --ood_train_size 100000 --id_train_size 100000 --reconstruct_output_act_size 12 --is_conv_method True
+python prototype_similarity/train_test.py --id_dataset imagenet200 --i_seed 2 --fsood True --ood_train_size 100000 --id_train_size 100000 --reconstruct_output_act_size 12 --is_conv_method True
+
+
