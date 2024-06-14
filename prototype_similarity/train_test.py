@@ -28,9 +28,20 @@ project_dir = str(Path(__file__).resolve().parents[1])
 data_dir = osp.join(project_dir, "data")
 model_dir = osp.join(project_dir, "results")
 
-random.seed(42)
-np.random.seed(42)
-torch.manual_seed(42)
+def set_seed(seed):
+    random.seed(seed)  # Set seed for the built-in random module
+    np.random.seed(seed)  # Set seed for NumPy
+    torch.manual_seed(seed)  # Set seed for PyTorch CPU
+    torch.cuda.manual_seed(seed)  # Set seed for PyTorch GPU
+    torch.cuda.manual_seed_all(seed)  # Set seed for all GPUs
+
+    # Ensure that the CUDNN operations are deterministic
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+# Example usage
+set_seed(42)
+
 
 # train_tin597: 29850
 # cifar100 train: 50000

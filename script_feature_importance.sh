@@ -1,0 +1,3 @@
+python prototype_similarity/train_test.py --id_dataset cifar100 --prototype_count 20 --prototype_channels 512 --prototype_layer_name 3_1_conv1 --measure_feature_importance True --prot_train_epochs 10
+mv metrics/feature_importance.csv metrics/feature_importance_trained.csv
+python prototype_similarity/train_test.py --id_dataset cifar100 --prototype_count 20 --prototype_channels 512 --prototype_layer_name 3_1_conv1 --measure_feature_importance True --prot_train_epochs 10 --train_prototypes False
