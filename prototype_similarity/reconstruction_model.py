@@ -59,6 +59,10 @@ class ReconstructModel(pl.LightningModule):
         self.spatial_avg_features = spatial_avg_features
         self.activations = {}
 
+        self.feature_masking = False # Feature importance
+        self.mask_layer_i = 0
+        self.mask_prot_i = 0
+
     def get_activation(self, name):
         def hook(model, input, output):
             output = output.detach()
@@ -90,27 +94,38 @@ class ReconstructModel(pl.LightningModule):
 
         layer_scores = torch.cat(layer_scores, dim=-1)
         return layer_scores
-
-    def prototype_scores_prot_method(self, x):
+    
+    def get_all_acts(self, x):
         with torch.no_grad():
             _ = self.backbone(x.cuda())
         acts = [self.activations[n] for n in self.act_names]
+        return acts
+    
+    def prototype_scores_prot_method(self, x):
+        acts = self.get_all_acts(x)
 
         layer_scores = []
         prots = [matcher.prototype_bank.T.unsqueeze(0).unsqueeze(2) for matcher in self.prototype_matchers]
         
-        for act, prot in zip(acts, prots):
+        for i_layer, (act, prot) in enumerate(zip(acts, prots)):
             h, w = act.shape[-2:]
             batch_tokens = act.flatten(start_dim=2).unsqueeze(-1) # batch_size, n_features, h*w, 1
             similarities_cos = (F.normalize(batch_tokens, dim=1) * F.normalize(prot, dim=1)).sum(dim=1) # batch_size, h*w, n_prot
             similarities = torch.square(batch_tokens - prot).mean(dim=1)
-            
+
             if self.spatial_avg_features:
+                # feature_masking is not available for spatial_avg_features
                 similarities = similarities.mean(dim=1)
                 similarities_cos = similarities_cos.max(dim=1).values
             else:
+                # Measure feature importance by masking each prototype's features one by one
+                if self.feature_masking and self.mask_layer_i == i_layer:
+                    similarities_cos[:, :, self.mask_prot_i] = 0
+                    similarities[:, :, self.mask_prot_i] = 0
+
                 similarities = similarities.flatten(start_dim=-2)#.mean(dim=1)
                 similarities_cos = similarities_cos.flatten(start_dim=-2)#.max(dim=1).values
+
             layer_scores.append(similarities)
             layer_scores.append(similarities_cos)
 
@@ -153,7 +168,7 @@ class ReconstructModel(pl.LightningModule):
 
     def configure_optimizers(self):
         proto_params = self.prototype_matchers.parameters()
-        opt_reg = torch.optim.Adam(proto_params, lr=1e-2) # , 0.1
+        opt_reg = torch.optim.Adam(proto_params, lr=1e-1) # , 0.1
         sch_reg = torch.optim.lr_scheduler.MultiStepLR(opt_reg, [3, 5], gamma=0.1)
         return [opt_reg], [sch_reg] # sch_reg, sch_cls
 

@@ -84,3 +84,8 @@ class PrototypeMatchingModel(nn.Module):
 
         with torch.no_grad():
             self.prototype_bank.copy_(bank_detach)
+
+    def init_with_acts(self, acts):
+        init_std = torch.std(acts)
+        print(f"Initialization std: {init_std}")
+        nn.init.normal_(self.prototype_bank, mean=0.0, std=init_std * 3)

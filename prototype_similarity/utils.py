@@ -3,6 +3,7 @@ from torch import nn
 import os.path as osp
 from PIL import Image
 from pathlib import Path
+import torch
 import numpy as np
 import os
 import matplotlib.pyplot as plt
@@ -139,4 +140,78 @@ def plot_prot_usage(model):
 
         plt.savefig(osp.join(plot_dir, f'prot_usage_top_{prot_order}.png'), dpi=300, bbox_inches='tight')
         plt.close()
+
+def plot_prot_corrs(model, order=None):
+    print("Saving prototype correlation plot")
+    import seaborn as sns
+
+    plot_dir = osp.join(project_dir, "plots")
+    if not osp.exists(plot_dir):
+        os.mkdir(plot_dir)
+
+    plt.figure(figsize=(10, 10), dpi=300)
+    rand_prots = torch.randn(20, 512)
+    prot_corrs = np.corrcoef(rand_prots.numpy())
+    np.fill_diagonal(prot_corrs, 0.0)
+    heatmap = sns.heatmap(prot_corrs, cmap='viridis', xticklabels=False, yticklabels=False, fmt=".1f", annot=True)
+    plt.title(f"Prototype Weight Correlations - Randomly Initialized")
+    heatmap.tick_params(left=False, bottom=False)
+
+    cbar = heatmap.collections[0].colorbar
+    cbar.set_label('Correlation', fontsize=10)
+
+    plt.savefig(osp.join(plot_dir, f'prot_weight_corr_random.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+
+    for i, matcher in enumerate(model.prototype_matchers):
+        prots = matcher.prototype_bank.cpu().detach().numpy()
+        if order is None:
+            prot_usage = matcher.prototype_usage_counts.cpu().detach().numpy()
+            total_usage_rates = prot_usage.sum(axis=1)
+            usage_order_idx = np.flip(np.argsort(total_usage_rates))
+            prot_corrs = np.corrcoef(prots[usage_order_idx[:20]])
+        else:
+            prot_corrs = np.corrcoef(prots[order])
+
+        plt.figure(figsize=(10, 10), dpi=300)
+        #np.fill_diagonal(prot_corrs, 0.0)
+        heatmap = sns.heatmap(prot_corrs, cmap='viridis', xticklabels=False, yticklabels=False, fmt=".1f", annot=True)
+        plt.title(f"Prototype Weight Correlations - Prototype Layer {i}")
+        heatmap.tick_params(left=False, bottom=False)
+
+        cbar = heatmap.collections[0].colorbar
+        cbar.set_label('Correlation', fontsize=10)
+
+        plt.savefig(osp.join(plot_dir, f'prot_weight_corr_{i}.png'), dpi=300, bbox_inches='tight')
+        plt.close()
+
+def plot_prot_weights(model, order=None):
+    print("Saving prototype weight plot")
+    import seaborn as sns
+
+    plot_dir = osp.join(project_dir, "plots")
+    if not osp.exists(plot_dir):
+        os.mkdir(plot_dir)
+
+    for i, matcher in enumerate(model.prototype_matchers):
+        if order is None:
+            prot_usage = matcher.prototype_usage_counts.cpu().detach().numpy()
+            total_usage_rates = prot_usage.sum(axis=1)
+            usage_order_idx = np.flip(np.argsort(total_usage_rates))
+            prot_w = matcher.prototype_bank.cpu().detach().numpy()[usage_order_idx[:20]]
+
+        else:
+            prot_w = matcher.prototype_bank.cpu().detach().numpy()[order]
+
+        plt.figure(figsize=(10, 3), dpi=300)
+        heatmap = sns.heatmap(prot_w[:, :128], cmap='viridis', xticklabels=False, yticklabels=False, fmt=".1f", annot=False)
+        plt.title(f"Prototype Weights - Prototype Layer {i}, Ordered by Usage in Training")
+        heatmap.tick_params(left=False, bottom=False)
+
+        cbar = heatmap.collections[0].colorbar
+        cbar.set_label('Weight', fontsize=10)
+
+        plt.savefig(osp.join(plot_dir, f'prot_weight_{i}.png'), dpi=300, bbox_inches='tight')
+        plt.close()
+
         

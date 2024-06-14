@@ -177,3 +177,25 @@ fig.savefig('plots/metric_per_layer.png', dpi=300, bbox_inches='tight')
 plt.show()
 
 # %%
+
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+plt.rcParams.update({'font.size': 10, 'font.family': 'serif'})
+
+fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=300)
+df_trained = pd.read_csv("metrics/feature_importance_trained.csv")
+df_not_trained = pd.read_csv("metrics/feature_importance.csv")
+
+comparison_metric = "AUROC-nearood"
+ax.set_title("Prototype Importance on CIFAR100", fontsize=12)
+sns.kdeplot(-df_trained[comparison_metric].values, ax=ax)
+sns.kdeplot(-df_not_trained[comparison_metric].values, ax=ax)
+ax.grid(True, linestyle='--', linewidth=0.5)
+ax.set_xlabel("Decrease in AUROC")
+ax.set_ylabel("Density of Prototypes")
+ax.legend(["Trained", "Not Trained"], fontsize=13)
+
+fig.savefig('plots/prototype_importance.png', dpi=300, bbox_inches='tight')
+plt.show()
+# %%

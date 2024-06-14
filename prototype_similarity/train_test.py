@@ -15,7 +15,7 @@ import pandas as pd
 from openood.evaluation_api import Evaluator
 from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning.callbacks import ModelCheckpoint
-from utils import PrototypePostprocessor, subsample_dataset, MergedDataset, plot_prot_usage
+from utils import PrototypePostprocessor, subsample_dataset, MergedDataset, plot_prot_usage, plot_prot_corrs, plot_prot_weights
 
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -31,6 +31,9 @@ model_dir = osp.join(project_dir, "results")
 random.seed(42)
 np.random.seed(42)
 torch.manual_seed(42)
+
+# train_tin597: 29850
+# cifar100 train: 50000
 
 DATASET_CIFAR10 = "cifar10"
 DATASET_CIFAR100 = "cifar100"
@@ -86,7 +89,8 @@ def main(
     do_plot_prot_usage=False, # Heatmap of prototype usage counts in reconstruction during training
     reconstruct_output_act_size=default_reconstruct_output_act_size,
     is_conv_method=False,
-    prot_train_epochs=default_prot_train_epochs
+    prot_train_epochs=default_prot_train_epochs,
+    measure_feature_importance=False
     ):
     assert id_dataset in [DATASET_CIFAR10, DATASET_CIFAR100, DATASET_IMAGENET200]
     mean, std = normalization_dict[id_dataset]
@@ -110,7 +114,7 @@ def main(
         else:
             input_dims = [128, 256, 512, 10]
             act_names = ["p2_relu1", "p3_relu1", "p4_relu1", "logit"]
-            num_proto = [50, 50, 50, 40]
+            num_proto = [100, 100, 100, 100]
         model = ReconstructModel(backbone, input_dims, num_proto, act_names, 
                                  spatial_avg_features, reconstruct_output_act_size, is_conv_method=is_conv_method).cuda()
         if prototype_layer_name:
@@ -122,7 +126,7 @@ def main(
             backbone.layer4[1].conv1.register_forward_hook(model.get_activation('p4_relu1'))
             backbone.fc.register_forward_hook(model.get_activation('logit'))
 
-        batch_size = 50
+        batch_size = 25
 
         def get_id_dataset(split="train", augmentation=False):
             if augmentation:
@@ -202,7 +206,7 @@ def main(
         else:
             input_dims = [128, 256, 512, 512, 100]
             act_names = ["p2_relu1", "p3_relu1", "p4_relu1", "avgpool", "logit"]
-            num_proto = [100, 100, 100, 50, 100]
+            num_proto = [100, 100, 100, 100, 100]
         model = ReconstructModel(backbone, input_dims, num_proto, act_names, 
                                  spatial_avg_features, reconstruct_output_act_size, is_conv_method=is_conv_method).cuda()
 
@@ -380,6 +384,11 @@ def main(
     if not is_conv_method:
         logger = TensorBoardLogger(save_dir="training_logs")
         if train_prototypes:
+            # Initialize with the same std as activations
+            acts = model.get_all_acts(next(iter(id_train_loader))[0].cuda())
+            for act, matcher in zip(acts, model.prototype_matchers):
+                matcher.init_with_acts(act)
+
             trainer = pl.Trainer(max_epochs=prot_train_epochs, logger=logger, accumulate_grad_batches=100, precision=32, log_every_n_steps=5)
             backbone.eval()
             trainer.fit(model, id_train_loader)
@@ -387,6 +396,8 @@ def main(
 
         if do_plot_prot_usage:
             plot_prot_usage(model)
+            plot_prot_corrs(model)
+            plot_prot_weights(model)
 
     ood_training_dataset = get_ood_dataset(split="train", augmentation=do_augment)
     mixed_train_dataset = MergedDataset(ood_training_dataset, id_train_dataset)
@@ -450,18 +461,62 @@ def main(
     ood_classifer = MLP.load_from_checkpoint(checkpoint_callback.best_model_path, reconstructor=model, input_size=mlp_input_size, hidden_size=mlp_hidden_size)
     ood_classifer.eval(); ood_classifer.cuda();
 
-    # Initialize an evaluator and evaluate
-    evaluator = Evaluator(model, id_name=id_dataset,
+    # Feature importance
+    if measure_feature_importance:
+        # Initialize an evaluator and evaluate
+        evaluator = Evaluator(model, id_name=id_dataset,
         preprocessor=evaluate_transform, postprocessor=PrototypePostprocessor(None, ood_classifer), batch_size=batch_size)
-    metrics = evaluator.eval_ood(fsood=fsood)
+        metrics_all_features = evaluator.eval_ood(fsood=fsood)
+        all_auroc_near = metrics_all_features.loc[metrics_all_features.index == "nearood", "AUROC"].iloc[0]
+        all_auroc_far = metrics_all_features.loc[metrics_all_features.index == "farood", "AUROC"].iloc[0]
+        all_fpr_near = metrics_all_features.loc[metrics_all_features.index == "nearood", "FPR@95"].iloc[0]
+        all_fpr_far = metrics_all_features.loc[metrics_all_features.index == "farood", "FPR@95"].iloc[0]
 
-    metrics = pd.DataFrame(metrics)
-    metrics_dir = osp.join(project_dir, "metrics")
-    if not osp.exists(metrics_dir):
-        os.mkdir(metrics_dir)
+        imp_metrics = []
+        model.feature_masking = True
+        model.mask_layer_i = 0
+        for i_prot in range(num_proto[0]):
+            print(f"Feature Importance, Prototype: {i_prot} #######################")
+            model.mask_prot_i = i_prot
+            # Initialize an evaluator and evaluate
+            evaluator = Evaluator(model, id_name=id_dataset,
+                preprocessor=evaluate_transform, postprocessor=PrototypePostprocessor(None, ood_classifer), batch_size=batch_size)
+            metrics = evaluator.eval_ood(fsood=fsood)
+            imp_metrics.append((
+                i_prot,
+                metrics.loc[metrics.index == "nearood", "AUROC"].iloc[0] - all_auroc_near,
+                metrics.loc[metrics.index == "nearood", "FPR@95"].iloc[0] - all_fpr_near,
+                metrics.loc[metrics.index == "farood", "AUROC"].iloc[0] - all_auroc_far,
+                metrics.loc[metrics.index == "farood", "FPR@95"].iloc[0] - all_fpr_far
+            ))
+        imp_metrics = pd.DataFrame(imp_metrics, columns=["prot_i", "AUROC-nearood", "FPR95-nearood", "AUROC-farood", "FPR95-farood"])
+        metrics_dir = osp.join(project_dir, "metrics")
+        imp_metrics = imp_metrics.sort_values(by="AUROC-nearood")
+        imp_metrics.to_csv(osp.join(metrics_dir, "feature_importance.csv"), index=False)
 
-    metrics.to_csv(osp.join(metrics_dir, metrics_filename + ".csv")) # TODO: revert
+        near_ood_order = imp_metrics["prot_i"].values
+        print("Feature importances:")
+        print(imp_metrics)
+        plot_prot_weights(model, order=near_ood_order)
+        plot_prot_corrs(model, order=near_ood_order)
+
+    else:
+
+        # Initialize an evaluator and evaluate
+        evaluator = Evaluator(model, id_name=id_dataset,
+            preprocessor=evaluate_transform, postprocessor=PrototypePostprocessor(None, ood_classifer), batch_size=batch_size)
+        metrics = evaluator.eval_ood(fsood=fsood)
+
+        metrics = pd.DataFrame(metrics)
+        metrics_dir = osp.join(project_dir, "metrics")
+        if not osp.exists(metrics_dir):
+            os.mkdir(metrics_dir)
+
+        metrics.to_csv(osp.join(metrics_dir, metrics_filename + ".csv"))
 
 if __name__ == '__main__':
-    fire.Fire(main)
+   fire.Fire(main)
 # %%
+"""
+main(id_dataset="cifar100", prototype_count=20, prototype_channels=512, prototype_layer_name="3_1_conv1", measure_feature_importance=True)
+"""
