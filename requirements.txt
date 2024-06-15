@@ -4,4 +4,5 @@ seaborn
 tqdm
 fire
 pytorch-lightning
+tensorboard
 git+https://github.com/Jingkang50/OpenOOD
