@@ -15,6 +15,8 @@ $ pip install -r requirements.txt
 ```
 
 ### Run
+Important: This repository only works in unix, due to OpenOOD library having the same requirement.
+
 - Run script_data_download.sh
 - Run script_reproduce.sh
 
