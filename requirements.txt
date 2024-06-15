@@ -1,0 +1,7 @@
+numpy
+pandas
+seaborn
+tqdm
+fire
+pytorch-lightning
+git+https://github.com/Jingkang50/OpenOOD

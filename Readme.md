@@ -5,6 +5,16 @@ Repository for the out-of-distribution(OOD) detection method named Prototype Sim
 Metrics for CIFAR10, CIFAR100, ImageNet-200, ImageNet-200-FS can be found in metrics/
 
 ## Reproduce
+
+### Create Environment
+```
+$ conda create -n prototype_similarity python=3.10
+$ conda activate prototype_similarity
+$ pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+$ pip install -r requirements.txt
+```
+
+### Run
 - Run script_data_download.sh
 - Run script_reproduce.sh
 
