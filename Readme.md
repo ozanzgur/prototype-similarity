@@ -5,6 +5,7 @@ Repository for the out-of-distribution(OOD) detection method named Prototype Sim
 Metrics for CIFAR10, CIFAR100, ImageNet-200, ImageNet-200-FS can be found in metrics/
 
 ## Reproduce
+Important: This repository only works in unix, due to OpenOOD library having the same requirement.
 
 ### Create Environment
 ```
@@ -15,8 +16,6 @@ $ pip install -r requirements.txt
 ```
 
 ### Run
-Important: This repository only works in unix, due to OpenOOD library having the same requirement.
-
 - Run script_data_download.sh
 - Run script_reproduce.sh
 
@@ -26,6 +25,10 @@ download_data.py script was copied from: https://github.com/Jingkang50/OpenOOD/b
 Before running script_reproduce.sh, download one or all parts of the imagenet1k dataset, place them under data/images_largescale/imagenet_1k/train
 
 Download from: https://huggingface.co/datasets/ILSVRC/imagenet-1k/tree/main/data
+
+
+## Results
+![Results](plots/results.png)
 
 
 
