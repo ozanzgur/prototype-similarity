@@ -101,7 +101,8 @@ def main(
     reconstruct_output_act_size=default_reconstruct_output_act_size,
     is_conv_method=False,
     prot_train_epochs=default_prot_train_epochs,
-    measure_feature_importance=False
+    measure_feature_importance=False,
+    save_act_samples=False
     ):
     assert id_dataset in [DATASET_CIFAR10, DATASET_CIFAR100, DATASET_IMAGENET200]
     mean, std = normalization_dict[id_dataset]
@@ -126,8 +127,11 @@ def main(
             input_dims = [128, 256, 512, 10]
             act_names = ["p2_relu1", "p3_relu1", "p4_relu1", "logit"]
             num_proto = [100, 100, 100, 100]
+            #input_dims = [512]
+            #act_names = ["p4_relu1"]
+            #num_proto = [20]
         model = ReconstructModel(backbone, input_dims, num_proto, act_names, 
-                                 spatial_avg_features, reconstruct_output_act_size, is_conv_method=is_conv_method).cuda()
+                                 spatial_avg_features, reconstruct_output_act_size, is_conv_method=is_conv_method, model_name=id_dataset).cuda()
         if prototype_layer_name:
             get_resnet_layer(backbone, prototype_layer_name).register_forward_hook(model.get_activation(prototype_layer_name))
 
@@ -219,7 +223,7 @@ def main(
             act_names = ["p2_relu1", "p3_relu1", "p4_relu1", "avgpool", "logit"]
             num_proto = [100, 100, 100, 100, 100]
         model = ReconstructModel(backbone, input_dims, num_proto, act_names, 
-                                 spatial_avg_features, reconstruct_output_act_size, is_conv_method=is_conv_method).cuda()
+                                 spatial_avg_features, reconstruct_output_act_size, is_conv_method=is_conv_method, model_name=id_dataset).cuda()
 
         if prototype_layer_name:
             get_resnet_layer(backbone, prototype_layer_name).register_forward_hook(model.get_activation(prototype_layer_name))
@@ -299,12 +303,15 @@ def main(
             num_proto = [prototype_count]
 
         else:
-            input_dims = [512, 512, 200]
-            act_names = ["p4_relu1", "avgpool", "logit"]
-            num_proto = [100, 100, 100]
+            # input_dims = [256, 512] # , 200
+            # act_names = ["p3_relu1", "avgpool"] # , "logit"
+            # num_proto = [100, 100] # 
+            input_dims = [256, 200] # , 200
+            act_names = ["p3_relu1", "logit"] # , "logit"
+            num_proto = [100, 5] # 
         model = ReconstructModel(backbone, input_dims, num_proto, act_names, 
                                  spatial_avg_features, reconstruct_output_act_size, 
-                                 is_conv_method=is_conv_method).cuda()
+                                 is_conv_method=is_conv_method, model_name=id_dataset).cuda()
         if prototype_layer_name:
             get_resnet_layer(backbone, prototype_layer_name).register_forward_hook(model.get_activation(prototype_layer_name))
         else:
@@ -402,7 +409,15 @@ def main(
 
             trainer = pl.Trainer(max_epochs=prot_train_epochs, logger=logger, accumulate_grad_batches=100, precision=32, log_every_n_steps=5)
             backbone.eval()
+
+            # Save the first batch activations
+            if save_act_samples:
+                model.save_tag = "train_prototypes"
+                model.save_act_samples = True
+                model.reset_save_counter()
+
             trainer.fit(model, id_train_loader)
+            model.save_act_samples = False
         model.eval(); model.cuda();
 
         if do_plot_prot_usage:
@@ -428,6 +443,7 @@ def main(
     )
 
     # Train OOD classifier
+    model.disable_prototype_training()
     mlp_input_size = model.prototype_scores(next(iter(ood_classifer_train_loader))[0].cuda()).cpu().detach().shape[1]
     print("mlp_hidden_size", mlp_hidden_size)
     ood_classifer = MLP(reconstructor=model, input_size=mlp_input_size, hidden_size=mlp_hidden_size, learning_rate=mlp_lr, dropout_rate=dropout_rate).cuda()
@@ -463,14 +479,21 @@ def main(
         save_weights_only=True
     )
 
+    if save_act_samples:
+        model.save_act_samples = True
+        model.save_tag = "train_detector"
+        model.reset_save_counter()
+
     # Train the model
     logger = TensorBoardLogger(save_dir="training_logs_metamodel", version=metrics_filename)
-    trainer = pl.Trainer(callbacks=[early_stop_callback, checkpoint_callback], max_epochs=20,
+    trainer = pl.Trainer(callbacks=[early_stop_callback, checkpoint_callback], max_epochs=5,
                         logger=logger, accumulate_grad_batches=100, precision=32, log_every_n_steps=1)
     trainer.fit(ood_classifer, ood_classifer_train_loader, ood_classifer_val_loader)
     print(f"Loading the best model from: {checkpoint_callback.best_model_path}")
     ood_classifer = MLP.load_from_checkpoint(checkpoint_callback.best_model_path, reconstructor=model, input_size=mlp_input_size, hidden_size=mlp_hidden_size)
     ood_classifer.eval(); ood_classifer.cuda();
+
+    model.save_act_samples = False
 
     # Feature importance
     if measure_feature_importance:
@@ -487,7 +510,7 @@ def main(
         model.feature_masking = True
         model.mask_layer_i = 0
         for i_prot in range(num_proto[0]):
-            print(f"Feature Importance, Prototype: {i_prot} #######################")
+            print(f"Feature Importance, Prototype: {i_prot}/{num_proto[0]} #######################")
             model.mask_prot_i = i_prot
             # Initialize an evaluator and evaluate
             evaluator = Evaluator(model, id_name=id_dataset,
@@ -512,6 +535,11 @@ def main(
         plot_prot_corrs(model, order=near_ood_order)
 
     else:
+        # Save the first batch activations
+        if save_act_samples:
+            model.save_act_samples = True
+            model.save_tag = "eval"
+            model.reset_save_counter()
 
         # Initialize an evaluator and evaluate
         evaluator = Evaluator(model, id_name=id_dataset,

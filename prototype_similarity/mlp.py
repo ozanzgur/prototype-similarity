@@ -32,8 +32,8 @@ class MLP(pl.LightningModule):
         self.loss = nn.BCELoss()
 
     def forward(self, x):
-        with torch.no_grad():
-            sim_scores = self.reconstructor.prototype_scores(x).detach()
+        #with torch.no_grad():
+        sim_scores = self.reconstructor.prototype_scores(x)#.detach()
 
         out = self.bn(sim_scores)
         out = self.dropout(out)
@@ -45,6 +45,7 @@ class MLP(pl.LightningModule):
     
     def training_step(self, train_batch, batch_idx):
         x, y = train_batch
+        #y = 1 - y # TODO: fix
         
         y_pred = self.forward(x)
         train_loss_mlp = self.loss(y_pred, y)
@@ -63,6 +64,7 @@ class MLP(pl.LightningModule):
 
         params = list(self.bn.parameters()) +\
             list(self.fc1.parameters()) +\
-            list(self.fc2.parameters())
+            list(self.fc2.parameters()) +\
+            list(self.reconstructor.parameters())
         opt_reg = torch.optim.Adam(params, lr=self.learning_rate)
         return [opt_reg]
